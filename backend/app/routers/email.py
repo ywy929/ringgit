@@ -17,6 +17,7 @@ from app.schemas import (
 from app.services.categorizer import Categorizer
 from app.services.gmail_fetcher import GmailFetcher
 from app.services.parser_registry import ParserRegistry
+from app.services.recurring_detector import RecurringDetector
 from app.services.transfer_detector import TransferDetector
 
 router = APIRouter()
@@ -140,6 +141,9 @@ def _process_fetched_pdf(filename: str, content: bytes, db: Session) -> UploadRe
     if period_month:
         detector = TransferDetector(db)
         detector.apply_transfers(period_month)
+
+    # Run recurring transaction detection
+    RecurringDetector(db).apply_recurring_flags()
 
     return UploadResult(
         filename=filename,

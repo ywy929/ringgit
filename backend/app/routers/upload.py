@@ -9,6 +9,7 @@ from app.models import Account, Category, Statement, Transaction
 from app.schemas import UploadResult
 from app.services.categorizer import Categorizer
 from app.services.parser_registry import ParserRegistry
+from app.services.recurring_detector import RecurringDetector
 from app.services.transfer_detector import TransferDetector
 
 router = APIRouter()
@@ -138,6 +139,9 @@ async def upload_statement(
     if period_month:
         detector = TransferDetector(db)
         detector.apply_transfers(period_month)
+
+    # Run recurring transaction detection
+    RecurringDetector(db).apply_recurring_flags()
 
     return UploadResult(
         filename=file.filename or "",
