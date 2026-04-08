@@ -58,7 +58,7 @@ class Transaction(Base):
     __tablename__ = "transactions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    statement_id: Mapped[int] = mapped_column(Integer, ForeignKey("statements.id"), nullable=False)
+    statement_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("statements.id"), nullable=True)
     account_id: Mapped[int] = mapped_column(Integer, ForeignKey("accounts.id"), nullable=False)
     date: Mapped[str] = mapped_column(String(10), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)

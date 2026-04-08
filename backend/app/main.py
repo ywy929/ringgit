@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import Base, SessionLocal, engine
+from app.routers import accounts, budgets, categories, dashboard, transactions, upload
 from app.seed import seed_database
 
 
@@ -27,6 +28,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+app.include_router(upload.router)
+app.include_router(transactions.router)
+app.include_router(dashboard.router)
+app.include_router(accounts.router)
+app.include_router(budgets.router)
+app.include_router(categories.router)
 
 
 @app.get("/health")
