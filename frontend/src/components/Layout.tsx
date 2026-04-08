@@ -8,7 +8,7 @@ export default function Layout() {
   return (
     <div className="flex min-h-screen">
       <Sidebar />
-      <main className={`ml-[220px] flex-1 min-h-screen ${isDashboard ? 'ruled-bg' : ''}`}>
+      <main className={`ml-[220px] flex-1 min-h-screen accent-stripe ${isDashboard ? 'ruled-bg' : ''}`}>
         <div className="max-w-[960px] mx-auto px-8 py-10">
           <Outlet />
         </div>

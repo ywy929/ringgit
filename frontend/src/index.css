@@ -65,3 +65,15 @@ body {
 .animate-reveal-1 { animation-delay: 0.08s; }
 .animate-reveal-2 { animation-delay: 0.16s; }
 .animate-reveal-3 { animation-delay: 0.24s; }
+
+.accent-stripe::after {
+  content: '';
+  position: fixed;
+  left: 220px;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--color-accent);
+  z-index: 5;
+  pointer-events: none;
+}
