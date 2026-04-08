@@ -1,0 +1,15 @@
+PUBLIC BANK BERHAD
+SAVINGS ACCOUNT STATEMENT
+
+Account No: 3123456789
+Statement Date: 30/04/26
+
+Date      Description                           Debit          Credit         Balance
+01/04/26  GIRO SALARY APR 2026                                 4,800.00       22,150.00
+04/04/26  DEBIT CARD JAYA GROCER TTDI            245.60                       21,904.40
+07/04/26  ATM WITHDRAWAL KL SENTRAL               200.00                      21,704.40
+10/04/26  FPX SYABAS WATER BILL                    45.80                      21,658.60
+14/04/26  DEBIT CARD MR DIY SUBANG                 38.90                      21,619.70
+18/04/26  IBG TRANSFER OUT                         500.00                     21,119.70
+22/04/26  DEBIT CARD GUARDIAN PHARMACY             67.50                      21,052.20
+28/04/26  INTEREST CREDIT                                       12.30         21,064.50

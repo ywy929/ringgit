@@ -1,0 +1,15 @@
+HONG LEONG BANK BERHAD
+STATEMENT OF ACCOUNT
+
+Account Number: 01234567890
+Period: 01 Apr 2026 to 30 Apr 2026
+
+Trans Date    Description                         Debit (RM)     Credit (RM)    Balance (RM)
+01/04/2026    SALARY APR                                         3,800.00       15,620.00
+03/04/2026    VISA DBS STARBUCKS BANGSAR           18.90                        15,601.10
+06/04/2026    VISA DBS UNIQLO MID VALLEY          189.00                        15,412.10
+10/04/2026    INSTANT TRANSFER TO MAYBANK          200.00                       15,212.10
+14/04/2026    VISA DBS WATSONS PAVILION             42.50                       15,169.60
+18/04/2026    JomPAY TNB ELECTRICITY               156.00                       15,013.60
+22/04/2026    VISA DBS LOTUS TESCO                 134.20                       14,879.40
+28/04/2026    INTEREST                                            8.50          14,887.90

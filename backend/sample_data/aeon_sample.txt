@@ -1,0 +1,16 @@
+AEON CREDIT SERVICE (M) BERHAD
+CREDIT CARD STATEMENT
+
+Card Number: XXXX-XXXX-XXXX-4567
+Statement Date: 30 Apr 2026
+Payment Due Date: 20 May 2026
+
+Post Date    Trans Date   Description                              Amount (RM)
+02/04/2026   01/04/2026   PAYMENT RECEIVED - THANK YOU              1,200.00 CR
+05/04/2026   04/04/2026   WATSON'S PAVILION KL                         42.50
+08/04/2026   07/04/2026   LAZADA*MARKETPLACE                          189.90
+12/04/2026   11/04/2026   MCDONALD'S AMPANG POINT                      28.40
+15/04/2026   14/04/2026   SPOTIFY PREMIUM                              15.90
+18/04/2026   17/04/2026   AEON BIG SUBANG JAYA                        156.80
+22/04/2026   21/04/2026   GRAB A-8812KL                                23.50
+28/04/2026   27/04/2026   DAISO SUNWAY PYRAMID                         21.20
