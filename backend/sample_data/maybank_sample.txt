@@ -1,0 +1,17 @@
+MAYBANK
+STATEMENT OF ACCOUNT
+Account No: 1234567890
+Statement Date: 30/04/2026
+Page 1 of 2
+
+TRANSACTION HISTORY
+
+DATE        DESCRIPTION                          AMOUNT(DR)    AMOUNT(CR)    BALANCE
+01/04/2026  SALARY APR 2026                                    5,200.00      12,450.00
+03/04/2026  GRABFOOD A-32891KL                   32.50                       12,417.50
+05/04/2026  SHELL TAMAN MELAWATI                 95.00                       12,322.50
+05/04/2026  TNG RELOAD                           100.00                      12,222.50
+07/04/2026  ATM WITHDRAWAL AMPANG                200.00                      12,022.50
+10/04/2026  JAYA GROCER TTDI                     187.40                      11,835.10
+15/04/2026  NETFLIX.COM                          54.90                       11,780.20
+20/04/2026  IBG TRANSFER TO CIMB                 500.00                      11,280.20
