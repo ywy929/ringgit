@@ -99,3 +99,19 @@ class TransferSummary(BaseModel):
     from_account: str
     to_account: str
     amount: float
+
+
+class EmailAccountCreate(BaseModel):
+    email: str
+    oauth_token: str
+
+class EmailAccountResponse(BaseModel):
+    id: int
+    email: str
+    last_fetched_at: str | None
+    model_config = {"from_attributes": True}
+
+class FetchResult(BaseModel):
+    email: str
+    statements_found: int
+    statements_processed: list[UploadResult]
