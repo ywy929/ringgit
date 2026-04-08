@@ -1,0 +1,67 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@theme {
+  --color-cream: #faf8f4;
+  --color-cream-deep: #f2efe8;
+  --color-paper: #ffffff;
+  --color-rule: #e6e2da;
+  --color-rule-strong: #d4cfc5;
+  --color-ink: #1a1816;
+  --color-ink-medium: #4a4640;
+  --color-ink-light: #7a756e;
+  --color-ink-whisper: #b8b4ae;
+  --color-accent: #bbb0dc;
+  --color-accent-deep: #7c6eaa;
+  --color-accent-ink: #5a4e82;
+  --color-accent-wash: #edeaf5;
+  --color-accent-ghost: #f5f3fa;
+  --color-positive: #4a7c5c;
+  --color-negative: #a04040;
+  --color-amber: #b07830;
+  --font-display: 'Bricolage Grotesque', sans-serif;
+  --font-number: 'Instrument Serif', serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+body {
+  font-family: var(--font-display);
+  background: var(--color-cream);
+  color: var(--color-ink);
+  margin: 0;
+}
+
+.ledger-card {
+  background: var(--color-paper);
+  border: 1px solid var(--color-rule);
+  border-radius: 3px;
+  box-shadow: 0 1px 3px rgba(26, 24, 22, 0.04), 0 8px 24px rgba(26, 24, 22, 0.04);
+}
+
+.ledger-card-header {
+  padding: 16px 24px 12px;
+  border-bottom: 2px solid var(--color-ink);
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.font-number { font-family: var(--font-number); font-style: italic; }
+.font-label { font-family: var(--font-mono); }
+
+.ruled-bg {
+  background-image: repeating-linear-gradient(0deg, transparent, transparent 39px, var(--color-rule) 39px, var(--color-rule) 40px);
+  background-size: 100% 40px;
+  background-position: 0 20px;
+}
+
+@keyframes revealDown {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-reveal { animation: revealDown 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.animate-reveal-1 { animation-delay: 0.08s; }
+.animate-reveal-2 { animation-delay: 0.16s; }
+.animate-reveal-3 { animation-delay: 0.24s; }
