@@ -1,8 +1,19 @@
 __pycache__/
 *.py[cod]
 *.db
+*.db-journal
 .pytest_cache/
 *.egg-info/
 dist/
 build/
 .venv/
+venv/
+
+# Environment / secrets
+.env
+
+# Fetched PDFs (backup of real bank statements)
+fetched_pdfs/
+
+# Real-PDF regression fixtures (contain personal data)
+tests/fixtures/real/
