@@ -16,6 +16,7 @@ from app.schemas import (
 )
 from app.services.categorizer import Categorizer
 from app.services.gmail_fetcher import GmailFetcher
+from app.services.oauth import refresh_access_token
 from app.services.parser_registry import ParserRegistry
 from app.services.recurring_detector import RecurringDetector
 from app.services.transfer_detector import TransferDetector
@@ -186,13 +187,32 @@ def delete_email_account(account_id: int, db: Session = Depends(get_db)):
     return {"detail": "Deleted"}
 
 
+_REFRESH_SKEW_SECONDS = 60
+
+
+def _token_near_expiry(expires_at_iso: str | None) -> bool:
+    if not expires_at_iso:
+        return True
+    try:
+        expires_at = datetime.fromisoformat(expires_at_iso)
+    except ValueError:
+        return True
+    return datetime.utcnow().timestamp() >= expires_at.timestamp() - _REFRESH_SKEW_SECONDS
+
+
 @router.post("/api/email-accounts/fetch", response_model=list[FetchResult])
 def fetch_all_accounts(db: Session = Depends(get_db)):
     accounts = db.query(EmailAccount).all()
     results = []
 
     for acct in accounts:
-        credentials = Credentials(token=acct.oauth_token)
+        if _token_near_expiry(acct.token_expires_at) and acct.refresh_token:
+            refreshed = refresh_access_token(acct.refresh_token)
+            acct.access_token = refreshed["access_token"]
+            acct.token_expires_at = refreshed["expires_at"]
+            db.commit()
+
+        credentials = Credentials(token=acct.access_token)
         fetcher = GmailFetcher(credentials)
 
         after_date = acct.last_fetched_at[:10] if acct.last_fetched_at else None
