@@ -1,0 +1,3 @@
+Drop real bank-statement PDFs here as you validate each parser.
+Filenames: <bank>_<YYYYMM>.pdf (e.g. maybank_202603.pdf).
+This directory is gitignored; the PDFs stay on your machine only.

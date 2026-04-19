@@ -16,4 +16,5 @@ venv/
 fetched_pdfs/
 
 # Real-PDF regression fixtures (contain personal data)
-tests/fixtures/real/
+tests/fixtures/real/*
+!tests/fixtures/real/.gitkeep
