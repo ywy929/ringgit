@@ -101,10 +101,6 @@ class TransferSummary(BaseModel):
     amount: float
 
 
-class EmailAccountCreate(BaseModel):
-    email: str
-    oauth_token: str
-
 class EmailAccountResponse(BaseModel):
     id: int
     email: str

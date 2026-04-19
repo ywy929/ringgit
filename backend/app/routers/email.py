@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Account, Category, EmailAccount, Statement, Transaction
 from app.schemas import (
-    EmailAccountCreate,
     EmailAccountResponse,
     FetchResult,
     UploadResult,
@@ -159,22 +158,6 @@ def _process_fetched_pdf(filename: str, content: bytes, db: Session) -> UploadRe
 def list_email_accounts(db: Session = Depends(get_db)):
     accounts = db.query(EmailAccount).all()
     return accounts
-
-
-@router.post("/api/email-accounts", response_model=EmailAccountResponse)
-def add_email_account(payload: EmailAccountCreate, db: Session = Depends(get_db)):
-    existing = db.query(EmailAccount).filter_by(email=payload.email).first()
-    if existing:
-        existing.oauth_token = payload.oauth_token
-        db.commit()
-        db.refresh(existing)
-        return existing
-
-    account = EmailAccount(email=payload.email, oauth_token=payload.oauth_token)
-    db.add(account)
-    db.commit()
-    db.refresh(account)
-    return account
 
 
 @router.delete("/api/email-accounts/{account_id}")
