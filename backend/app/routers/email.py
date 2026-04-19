@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import re
 from datetime import datetime
 
@@ -6,6 +7,7 @@ from fastapi import APIRouter, Depends
 from google.oauth2.credentials import Credentials
 from sqlalchemy.orm import Session
 
+from app.config import BACKEND_ROOT
 from app.database import get_db
 from app.models import Account, Category, EmailAccount, Statement, Transaction
 from app.schemas import (
@@ -20,6 +22,8 @@ from app.services.parser_registry import ParserRegistry
 from app.services.recurring_detector import RecurringDetector
 from app.services.transfer_detector import TransferDetector
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 ATM_PATTERN = re.compile(
@@ -28,6 +32,8 @@ ATM_PATTERN = re.compile(
 )
 
 registry = ParserRegistry()
+
+PDF_ROOT = BACKEND_ROOT / "fetched_pdfs"
 
 
 def _extract_text_from_pdf(content: bytes, password: str | None = None) -> str:
@@ -43,10 +49,10 @@ def _extract_text_from_pdf(content: bytes, password: str | None = None) -> str:
     return text
 
 
-def _process_fetched_pdf(filename: str, content: bytes, db: Session) -> UploadResult:
+def _process_fetched_pdf(filename: str, content: bytes, db: Session, email: str) -> UploadResult:
     file_hash = hashlib.sha256(content).hexdigest()
 
-    # Check for duplicate
+    # Duplicate check first — avoid disk write on repeats.
     existing = db.query(Statement).filter_by(file_hash=file_hash).first()
     if existing:
         return UploadResult(
@@ -58,7 +64,7 @@ def _process_fetched_pdf(filename: str, content: bytes, db: Session) -> UploadRe
             message="This statement has already been imported.",
         )
 
-    # Extract text — no password for email PDFs
+    # Extract text (no password for email PDFs).
     try:
         text = _extract_text_from_pdf(content)
     except Exception:
@@ -71,9 +77,25 @@ def _process_fetched_pdf(filename: str, content: bytes, db: Session) -> UploadRe
             message="Password-protected PDF. Please upload manually with the password.",
         )
 
-    # Detect bank
+    # Detect bank and period up-front so the saved filename is informative.
     parser = registry.detect_bank(text)
-    if not parser:
+    if parser is None:
+        bank_id = "unknown"
+        period_month = "unknown"
+    else:
+        bank_id = parser.bank_id
+        period_month = parser.extract_period_month(text) or "unknown"
+
+    # Persist the PDF to disk before parsing runs, so a parser crash still
+    # leaves the bytes available for inspection via replay_statement.py.
+    email_slug = re.sub(r"\W+", "_", email)
+    target_dir = PDF_ROOT / email_slug
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / f"{period_month}_{bank_id}_{file_hash[:8]}.pdf"
+    target.write_bytes(content)
+    file_path_rel = str(target.relative_to(BACKEND_ROOT))
+
+    if parser is None:
         return UploadResult(
             filename=filename,
             bank="unknown",
@@ -83,9 +105,6 @@ def _process_fetched_pdf(filename: str, content: bytes, db: Session) -> UploadRe
             message="Could not detect bank from statement.",
         )
 
-    bank_id = parser.bank_id
-
-    # Find matching account
     account = db.query(Account).filter_by(bank=bank_id).first()
     if not account:
         return UploadResult(
@@ -97,22 +116,19 @@ def _process_fetched_pdf(filename: str, content: bytes, db: Session) -> UploadRe
             message=f"No account found for bank '{bank_id}'. Please create one first.",
         )
 
-    # Parse transactions
     parsed = parser.parse(text)
-    period_month = parser.extract_period_month(text)
 
-    # Create statement
     stmt = Statement(
         file_hash=file_hash,
         bank=bank_id,
         source="email",
         filename=filename,
-        period_month=period_month,
+        period_month=period_month if period_month != "unknown" else "",
+        file_path=file_path_rel,
     )
     db.add(stmt)
     db.flush()
 
-    # Categorize and store transactions
     categorizer = Categorizer(db)
     uncat = db.query(Category).filter_by(name="Uncategorized").first()
 
@@ -120,9 +136,7 @@ def _process_fetched_pdf(filename: str, content: bytes, db: Session) -> UploadRe
         cat_id = categorizer.categorize(p["description"])
         if cat_id is None and uncat:
             cat_id = uncat.id
-
         is_atm = bool(ATM_PATTERN.search(p["description"]))
-
         tx = Transaction(
             statement_id=stmt.id,
             account_id=account.id,
@@ -137,13 +151,15 @@ def _process_fetched_pdf(filename: str, content: bytes, db: Session) -> UploadRe
 
     db.commit()
 
-    # Run transfer detection
-    if period_month:
-        detector = TransferDetector(db)
-        detector.apply_transfers(period_month)
-
-    # Run recurring transaction detection
+    if period_month and period_month != "unknown":
+        TransferDetector(db).apply_transfers(period_month)
     RecurringDetector(db).apply_recurring_flags()
+
+    if len(parsed) == 0 and len(text.strip()) > 100:
+        logger.warning(
+            "parser %s returned 0 transactions for %s (%d chars extracted); sample: %r",
+            bank_id, file_path_rel, len(text), text[:200],
+        )
 
     return UploadResult(
         filename=filename,
@@ -203,7 +219,7 @@ def fetch_all_accounts(db: Session = Depends(get_db)):
 
         processed = []
         for att in attachments:
-            result = _process_fetched_pdf(att["filename"], att["content"], db)
+            result = _process_fetched_pdf(att["filename"], att["content"], db, acct.email)
             processed.append(result)
 
         acct.last_fetched_at = datetime.utcnow().isoformat()
