@@ -50,6 +50,7 @@ class Statement(Base):
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     imported_at: Mapped[str] = mapped_column(String(30), default=lambda: datetime.utcnow().isoformat())
     period_month: Mapped[str] = mapped_column(String(7), nullable=False)
+    file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     transactions: Mapped[list["Transaction"]] = relationship(back_populates="statement")
 
@@ -80,7 +81,9 @@ class EmailAccount(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     email: Mapped[str] = mapped_column(String(200), nullable=False, unique=True)
-    oauth_token: Mapped[str] = mapped_column(Text, nullable=False)
+    access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    token_expires_at: Mapped[str | None] = mapped_column(String(30), nullable=True)
     last_fetched_at: Mapped[str | None] = mapped_column(String(30), nullable=True)
 
 
