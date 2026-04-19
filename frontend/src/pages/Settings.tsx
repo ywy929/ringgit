@@ -18,6 +18,18 @@ export default function Settings() {
 
   const [newAccount, setNewAccount] = useState({ name: '', bank: BANKS[0], type: ACCOUNT_TYPES[0] })
   const [newCategory, setNewCategory] = useState('')
+  const [toast, setToast] = useState<string | null>(null)
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const connected = params.get('connected')
+    if (connected) {
+      setToast(`Connected ${connected}`)
+      window.history.replaceState({}, '', window.location.pathname)
+      const t = setTimeout(() => setToast(null), 4000)
+      return () => clearTimeout(t)
+    }
+  }, [])
 
   const reload = () => {
     getEmailAccounts().then(setEmails).catch(() => setEmails([]))
@@ -61,6 +73,11 @@ export default function Settings() {
 
   return (
     <div>
+      {toast && (
+        <div className="fixed top-6 right-6 bg-accent-ink text-white px-4 py-3 rounded shadow-lg z-50 text-sm font-semibold">
+          {toast}
+        </div>
+      )}
       {/* Header */}
       <div className="flex justify-between items-end mb-10 pb-3.5 border-b-2 border-ink animate-reveal">
         <span className="text-[28px] font-extrabold tracking-tight">Settings</span>
@@ -86,6 +103,13 @@ export default function Settings() {
                 </button>
               </div>
             ))}
+            <div className="pt-4 mt-2 border-t border-rule">
+              <a href="http://localhost:8000/api/oauth/start"
+                className="inline-block bg-accent-ink text-white font-bold text-sm uppercase tracking-wide px-5 py-2 rounded hover:bg-accent-deep transition-colors">
+                Connect Gmail
+              </a>
+              <span className="ml-3 text-xs text-ink-whisper">Opens Google consent — you can connect multiple accounts.</span>
+            </div>
           </div>
         </div>
 
