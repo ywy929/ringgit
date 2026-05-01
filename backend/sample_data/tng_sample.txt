@@ -1,16 +1,109 @@
-Touch 'n Go eWallet
-Transaction History
-
-Period: April 2026
-
-Date & Time              Description                          Amount (RM)
-01/04/2026 09:15         Reload from Maybank ****7890          +100.00
-01/04/2026 12:30         GrabFood - Nasi Lemak House           -15.50
-03/04/2026 08:45         PLUS Highway Toll                      -4.20
-05/04/2026 14:22         FamilyMart KLCC                        -8.90
-07/04/2026 10:00         Reload from Maybank ****7890          +200.00
-10/04/2026 18:15         Shopee Pay - Order #SHP28391           -45.00
-15/04/2026 07:30         PLUS Highway Toll                      -4.20
-20/04/2026 13:00         Warung Pak Ali                        -12.00
-25/04/2026 09:45         TNG RFID Toll                          -6.80
-28/04/2026 20:10         GO+ Cashback                           +2.50
+Customer Transactions Statement
+Account Name
+eWallet ID
+Generated Date & Time
+Transaction Period
+Card Type
+Serial No.
+Status
+: TEST USER
+: 100000001
+: 02 April 2026 10:00 AM
+: 01 April 2026 - 30 April 2026
+: Generic
+: 1234567890
+: ACTIVE
+Trans No.
+Entry Date
+and Time
+Exit Date & Time Posted
+Date
+Tran
+Type
+Entry
+Location
+Entry SP
+Exit Location
+Exit SP
+Reload
+Location
+Trans
+Amount
+(RM)
+Card
+Balance
+(RM)
+Sector
+70001
+01/04/2026
+09:15:00
+01/04
+/2026
+OTA
+Reload
+OTA-TNGD
+TD_A01
+OTA-TNGD
+TD_A01
+OTA-TNGD
+100.00
+115.00
+70002
+01/04/2026
+12:30:00
+01/04
+/2026
+Fare
+Usage -
+Toll/Bus
+PLUS - JAWI
+04_PLUS
+PLUS - JURU
+04_PLUS
+2.30
+112.70
+TOLL
+70003
+03/04/2026
+08:45:00
+03/04
+/2026
+Fare
+Usage -
+Toll/Bus
+PLUS - SUBANG
+04_PLUS
+PLUS - BUKIT
+RAJA
+04_PLUS
+1.31
+111.39
+TOLL
+Offline Card Transactions
+Transaction No.
+Date & Time
+Posted
+Date
+Transaction
+Type
+Entry Location
+Entry SP
+Exit Location
+Exit SP
+Transaction
+Amount (RM)
+ABC123S122026040107422412
+05/04/2026
+07:42:24
+05/04
+/2026
+Fare Usage -
+Barrier (Open
+System)
+GCE - LAGONG
+GCE
+GCE - LAGONG
+GCE
+1.75
+~~ End of the statement ~~
+1

@@ -19,7 +19,9 @@ from app.config import (
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 _TOKEN_URI = "https://oauth2.googleapis.com/token"
 _AUTH_URI = "https://accounts.google.com/o/oauth2/auth"
-_USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
+# Gmail's own profile endpoint — returns emailAddress with just gmail.readonly,
+# so we don't need to add userinfo.email to SCOPES (which would force re-consent).
+_GMAIL_PROFILE_URL = "https://gmail.googleapis.com/gmail/v1/users/me/profile"
 
 
 def _make_flow() -> Flow:
@@ -53,10 +55,10 @@ def exchange_code_for_tokens(code: str) -> dict:
     flow.fetch_token(code=code)
     creds = flow.credentials
     resp = httpx.get(
-        _USERINFO_URL,
+        _GMAIL_PROFILE_URL,
         headers={"Authorization": f"Bearer {creds.token}"},
     )
-    email = resp.json()["email"]
+    email = resp.json()["emailAddress"]
     expires_at = creds.expiry.isoformat() if creds.expiry else None
     return {
         "email": email,

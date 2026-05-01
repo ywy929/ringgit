@@ -1,0 +1,72 @@
+TNG WALLET TRANSACTION HISTORY
+1 January 2025 - 31 January 2025
+TEST USER
+1000005200000000
+Registered Name
+Wallet ID
+Account Status
+Generated Date & Time
+Transaction Period
+1 February 2025 10:00 AM
+Active
+Date
+Status
+Transaction Type
+Reference
+Description
+Details
+Amount (RM)
+Wallet Balance
+24/1/2025
+Success
+RFID Payment
+20250124101
+10000010000
+TNGOW3MY1
+71114855443
+849
+BORR - BAGAN AJAM
+24/01/2025 08:39 PM
+RM1.50
+RM141.99
+22/1/2025
+Success
+Payment
+20250122101
+10000010000
+TNGOW3MY1
+71114855295
+593
+Digi Telecommunications Sdn Bhd
+202501242112128001101710546243
+68735
+RM83.00
+RM146.74
+20/1/2025
+Success
+DUITNOW_RECEI
+VEFROM
+20250120111
+21700010100
+17111483056
+0452
+TEST PAYER
+2025012010110000010000TNGOW3
+MY171114855292106
+RM200.00
+RM229.74
+*This is a system generated email. Please do not reply to this email. For further enquiry, kindly contact our customer service through https://tngd.my/careline-webform or call us at
++603 5022 3888. The operating hours are Monday to Sunday, 7.00am to 10.00pm (including public holidays). Thank you.
+15/1/2025
+Success
+DuitNow QR TNGD 20250115101
+10000010000
+TNGOW3MY1
+71114854480
+515
+RESTORAN TEST (PULAU
+PINANG)
+202501152112128001001711107748
+29536
+RM25.50
+RM55.57

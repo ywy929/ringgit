@@ -44,17 +44,23 @@ async def upload_statement(
     content = await file.read()
     file_hash = hashlib.sha256(content).hexdigest()
 
-    # Check for duplicate
+    # Check for duplicate. An "encrypted" stub means the email-fetch path
+    # saved the bytes but couldn't extract text — replace it now that the
+    # user is uploading with a password.
     existing = db.query(Statement).filter_by(file_hash=file_hash).first()
     if existing:
-        return UploadResult(
-            filename=file.filename or "",
-            bank="",
-            transactions_imported=0,
-            duplicates_skipped=1,
-            status="duplicate",
-            message="This statement has already been imported.",
-        )
+        if existing.bank == "encrypted":
+            db.delete(existing)
+            db.commit()
+        else:
+            return UploadResult(
+                filename=file.filename or "",
+                bank="",
+                transactions_imported=0,
+                duplicates_skipped=1,
+                status="duplicate",
+                message="This statement has already been imported.",
+            )
 
     # Extract text
     try:
@@ -110,11 +116,47 @@ async def upload_statement(
     db.add(stmt)
     db.flush()
 
-    # Categorize and store transactions
+    # Categorize and store transactions, with dedup against existing rows in
+    # the same account (date, amount, type, description) so an overlapping
+    # statement doesn't double-count transactions.
     categorizer = Categorizer(db)
     uncat = db.query(Category).filter_by(name="Uncategorized").first()
 
+    # See _process_fetched_pdf in routers/email.py for the dedup rationale.
+    existing_refs: set[str] = set()
+    existing_by_key: dict[tuple, list] = {}
+    for t in db.query(Transaction).filter_by(account_id=account.id).all():
+        if t.external_reference:
+            existing_refs.add(t.external_reference)
+        existing_by_key.setdefault(
+            (t.date, t.amount, t.type, t.description), []
+        ).append(t)
+
+    inserted = 0
+    skipped = 0
     for p in parsed:
+        ref = p.get("external_reference")
+        key = (p["date"], p["amount"], p["type"], p["description"])
+
+        if ref and ref in existing_refs:
+            skipped += 1
+            continue
+
+        if ref:
+            ref_less_rows = [t for t in existing_by_key.get(key, []) if t and not t.external_reference]
+            if ref_less_rows:
+                ref_less_rows[0].external_reference = ref
+                existing_refs.add(ref)
+                skipped += 1
+                continue
+
+        if not ref and key in existing_by_key:
+            skipped += 1
+            continue
+
+        if ref:
+            existing_refs.add(ref)
+        existing_by_key.setdefault(key, []).append(None)
         cat_id = categorizer.categorize(p["description"])
         if cat_id is None and uncat:
             cat_id = uncat.id
@@ -130,8 +172,10 @@ async def upload_statement(
             type=p["type"],
             category_id=cat_id,
             is_cash_withdrawal=is_atm,
+            external_reference=ref,
         )
         db.add(tx)
+        inserted += 1
 
     db.commit()
 
@@ -146,7 +190,7 @@ async def upload_statement(
     return UploadResult(
         filename=file.filename or "",
         bank=bank_id,
-        transactions_imported=len(parsed),
-        duplicates_skipped=0,
+        transactions_imported=inserted,
+        duplicates_skipped=skipped,
         status="done",
     )

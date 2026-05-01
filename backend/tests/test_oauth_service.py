@@ -33,7 +33,7 @@ def test_exchange_code_for_tokens_returns_parsed_fields(mock_flow_cls, mock_http
     mock_flow_cls.from_client_config.return_value = mock_flow
 
     mock_response = MagicMock()
-    mock_response.json.return_value = {"email": "user@gmail.com"}
+    mock_response.json.return_value = {"emailAddress": "user@gmail.com"}
     mock_httpx.get.return_value = mock_response
 
     result = oauth.exchange_code_for_tokens("fake-code")

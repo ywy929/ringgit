@@ -1,14 +1,27 @@
 import base64
+import re
 
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
+
+def _parse_sender(from_header: str) -> str:
+    # "Touch 'n Go eWallet" <ewallet@tngdigital.com.my>  -->  ewallet@tngdigital.com.my
+    m = re.search(r"<([^>]+)>", from_header)
+    if m:
+        return m.group(1).strip().lower()
+    return from_header.strip().lower()
+
 BANK_SENDERS = [
-    "estatement@maybank.com.my",
-    "estatement@cimb.com.my",
+    "m2u@stmts.maybank2u.com.my",
+    "noreply@e-statement.cimb.com",
+    "noreply-correspondence@hongleongbank.com.my",
+    "estatement@aeonrewards.com.my",
+    "no.reply@addcard.touchngo.com.my",
+    "ewallet@tngdigital.com.my",
+    # Public Bank sender unverified — keeping the original guess until a real
+    # statement confirms or replaces it.
     "estatement@publicbank.com.my",
-    "estatement@hongleong.com.my",
-    "noreply@aeoncredit.com.my",
 ]
 
 
@@ -28,6 +41,13 @@ class GmailFetcher:
             userId="me", id=message_id
         ).execute()
 
+        headers = message.get("payload", {}).get("headers", [])
+        from_header = next(
+            (h.get("value", "") for h in headers if h.get("name", "").lower() == "from"),
+            "",
+        )
+        sender = _parse_sender(from_header)
+
         attachments = []
         parts = message.get("payload", {}).get("parts", [])
 
@@ -42,6 +62,7 @@ class GmailFetcher:
                     attachments.append({
                         "filename": part["filename"],
                         "content": content,
+                        "sender": sender,
                     })
 
         return attachments

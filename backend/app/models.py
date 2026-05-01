@@ -76,6 +76,12 @@ class Transaction(Base):
     is_cash_withdrawal: Mapped[bool] = mapped_column(Boolean, default=False)
     is_internal_transfer: Mapped[bool] = mapped_column(Boolean, default=False)
     linked_transfer_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("transactions.id"), nullable=True)
+    # Bank-provided per-transaction unique ID (e.g. TnG's "Trans No" or the
+    # concatenated reference parts). None for parsers that don't expose one.
+    # Used as a stricter dedup key than (date, amount, type, description) so
+    # legitimately-identical transactions (e.g. two same-day same-amount toll
+    # passes) are kept while overlapping-statement re-imports are blocked.
+    external_reference: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     statement: Mapped["Statement"] = relationship(back_populates="transactions")
     account: Mapped["Account"] = relationship(back_populates="transactions")

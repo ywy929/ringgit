@@ -14,7 +14,7 @@ from google.auth.exceptions import RefreshError
 from google.oauth2.credentials import Credentials
 from sqlalchemy.orm import Session
 
-from app.config import BACKEND_ROOT
+from app.config import BACKEND_ROOT, SENDER_PASSWORDS
 from app.database import get_db
 from app.models import Account, Category, EmailAccount, Statement, Transaction
 from app.schemas import (
@@ -48,7 +48,12 @@ def _extract_text_from_pdf(content: bytes, password: str | None = None) -> str:
 
     doc = fitz.open(stream=content, filetype="pdf")
     if password:
-        doc.authenticate(password)
+        # authenticate() returns 0 on failure, non-zero on success. Without
+        # this guard, a wrong password silently proceeds and page iteration
+        # raises a downstream "corrupt object stream" error.
+        if not doc.authenticate(password):
+            doc.close()
+            raise ValueError("PDF password authentication failed")
     text = ""
     for page in doc:
         text += page.get_text()
@@ -56,7 +61,9 @@ def _extract_text_from_pdf(content: bytes, password: str | None = None) -> str:
     return text
 
 
-def _process_fetched_pdf(filename: str, content: bytes, db: Session, email: str) -> UploadResult:
+def _process_fetched_pdf(
+    filename: str, content: bytes, db: Session, email: str, sender: str | None = None,
+) -> UploadResult:
     file_hash = hashlib.sha256(content).hexdigest()
 
     # Duplicate check first — avoid disk write on repeats.
@@ -71,17 +78,38 @@ def _process_fetched_pdf(filename: str, content: bytes, db: Session, email: str)
             message="This statement has already been imported.",
         )
 
-    # Extract text (no password for email PDFs).
+    # Look up password by sender — None if no password configured.
+    password = SENDER_PASSWORDS.get(sender) if sender else None
+
+    # Extract text (with password if the sender has one configured).
     try:
-        text = _extract_text_from_pdf(content)
+        text = _extract_text_from_pdf(content, password=password)
     except Exception:
+        # Encrypted/unreadable PDF — save the bytes and record a stub Statement
+        # so the dedup gate catches re-fetches. User can decrypt and re-upload
+        # via /api/upload with the password; that path replaces this stub.
+        email_slug = re.sub(r"\W+", "_", email)
+        target_dir = PDF_ROOT / email_slug
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / f"encrypted_{file_hash[:8]}.pdf"
+        target.write_bytes(content)
+        file_path_rel = str(target.relative_to(BACKEND_ROOT))
+        db.add(Statement(
+            file_hash=file_hash,
+            bank="encrypted",
+            source="email",
+            filename=filename,
+            period_month="",
+            file_path=file_path_rel,
+        ))
+        db.commit()
         return UploadResult(
             filename=filename,
             bank="unknown",
             transactions_imported=0,
             duplicates_skipped=0,
             status="failed",
-            message="Password-protected PDF. Please upload manually with the password.",
+            message=f"Password-protected PDF saved to {file_path_rel}. Upload manually with the password.",
         )
 
     # Detect bank and period up-front so the saved filename is informative.
@@ -161,7 +189,51 @@ def _process_fetched_pdf(filename: str, content: bytes, db: Session, email: str)
     categorizer = Categorizer(db)
     uncat = db.query(Category).filter_by(name="Uncategorized").first()
 
+    # Three-tier dedup against existing transactions for this account:
+    # 1. external_reference (bank-provided per-tx ID): strict, exact match.
+    # 2. Promote: new tx HAS a ref, existing row matches broad key but has
+    #    no ref — same tx gaining a ref. Update existing instead of insert.
+    # 3. Broad (date, amount, type, description): fallback for ref-less parsers.
+    #    Two genuinely identical transactions on the same day collapse here.
+    existing_refs: set[str] = set()
+    existing_by_key: dict[tuple, list] = {}
+    for t in db.query(Transaction).filter_by(account_id=account.id).all():
+        if t.external_reference:
+            existing_refs.add(t.external_reference)
+        existing_by_key.setdefault(
+            (t.date, t.amount, t.type, t.description), []
+        ).append(t)
+
+    inserted = 0
+    skipped = 0
+    promoted = 0
     for p in parsed:
+        ref = p.get("external_reference")
+        key = (p["date"], p["amount"], p["type"], p["description"])
+
+        if ref and ref in existing_refs:
+            skipped += 1
+            continue
+
+        if ref:
+            # Promotion check: a row with the same broad key but no ref is
+            # almost certainly the same transaction whose ref wasn't captured
+            # before (older parser, missing migration, etc.).
+            ref_less_rows = [t for t in existing_by_key.get(key, []) if t and not t.external_reference]
+            if ref_less_rows:
+                ref_less_rows[0].external_reference = ref
+                existing_refs.add(ref)
+                promoted += 1
+                skipped += 1
+                continue
+
+        if not ref and key in existing_by_key:
+            skipped += 1
+            continue
+
+        if ref:
+            existing_refs.add(ref)
+        existing_by_key.setdefault(key, []).append(None)  # sentinel — set membership only
         cat_id = categorizer.categorize(p["description"])
         if cat_id is None and uncat:
             cat_id = uncat.id
@@ -175,8 +247,10 @@ def _process_fetched_pdf(filename: str, content: bytes, db: Session, email: str)
             type=p["type"],
             category_id=cat_id,
             is_cash_withdrawal=is_atm,
+            external_reference=ref,
         )
         db.add(tx)
+        inserted += 1
 
     db.commit()
 
@@ -193,8 +267,8 @@ def _process_fetched_pdf(filename: str, content: bytes, db: Session, email: str)
     return UploadResult(
         filename=filename,
         bank=bank_id,
-        transactions_imported=len(parsed),
-        duplicates_skipped=0,
+        transactions_imported=inserted,
+        duplicates_skipped=skipped,
         status="done",
     )
 
@@ -276,7 +350,10 @@ def fetch_all_accounts(db: Session = Depends(get_db)):
 
         processed = []
         for att in attachments:
-            result = _process_fetched_pdf(att["filename"], att["content"], db, acct.email)
+            result = _process_fetched_pdf(
+                att["filename"], att["content"], db, acct.email,
+                sender=att.get("sender"),
+            )
             processed.append(result)
 
         acct.last_fetched_at = _utcnow_naive().isoformat()
