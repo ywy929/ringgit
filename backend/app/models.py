@@ -1,9 +1,15 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+
+
+# Naive UTC ISO strings keep the column shape (String(30)) and matching
+# semantics with _token_near_expiry, which compares both sides as naive.
+def _utcnow_iso() -> str:
+    return datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
 
 
 class Account(Base):
@@ -35,7 +41,7 @@ class KeywordMapping(Base):
     keyword_pattern: Mapped[str] = mapped_column(String(200), nullable=False)
     category_id: Mapped[int] = mapped_column(Integer, ForeignKey("categories.id"), nullable=False)
     source: Mapped[str] = mapped_column(String(10), nullable=False)
-    created_at: Mapped[str] = mapped_column(String(30), default=lambda: datetime.utcnow().isoformat())
+    created_at: Mapped[str] = mapped_column(String(30), default=_utcnow_iso)
 
     category: Mapped["Category"] = relationship(back_populates="keyword_mappings")
 
@@ -48,7 +54,7 @@ class Statement(Base):
     bank: Mapped[str] = mapped_column(String(50), nullable=False)
     source: Mapped[str] = mapped_column(String(10), nullable=False)
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
-    imported_at: Mapped[str] = mapped_column(String(30), default=lambda: datetime.utcnow().isoformat())
+    imported_at: Mapped[str] = mapped_column(String(30), default=_utcnow_iso)
     period_month: Mapped[str] = mapped_column(String(7), nullable=False)
     file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
@@ -93,3 +99,13 @@ class Budget(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     month: Mapped[str] = mapped_column(String(7), nullable=False, unique=True)
     target_amount: Mapped[float] = mapped_column(Float, nullable=False)
+
+
+class OAuthState(Base):
+    """Pending OAuth state tokens. Persisted so a uvicorn --reload between
+    /api/oauth/start and /api/oauth/callback doesn't invalidate the flow.
+    expires_at is unix epoch seconds; rows are pruned on every cleanup pass."""
+    __tablename__ = "oauth_states"
+
+    state: Mapped[str] = mapped_column(String(64), primary_key=True)
+    expires_at: Mapped[float] = mapped_column(Float, nullable=False)

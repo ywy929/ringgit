@@ -48,13 +48,31 @@ def test_exchange_code_for_tokens_returns_parsed_fields(mock_flow_cls, mock_http
 
 
 @patch("app.services.oauth.Credentials")
-def test_refresh_access_token_uses_refresh_token(mock_creds_cls):
+def test_refresh_access_token_returns_unchanged_refresh_token(mock_creds_cls):
     mock_creds = MagicMock()
     mock_creds.token = "at-refreshed"
+    mock_creds.refresh_token = "rt-old"  # Google did not rotate
     mock_creds.expiry = None
     mock_creds_cls.return_value = mock_creds
 
     result = oauth.refresh_access_token("rt-old")
 
     mock_creds.refresh.assert_called_once()
-    assert result == {"access_token": "at-refreshed", "expires_at": None}
+    assert result == {
+        "access_token": "at-refreshed",
+        "refresh_token": "rt-old",
+        "expires_at": None,
+    }
+
+
+@patch("app.services.oauth.Credentials")
+def test_refresh_access_token_returns_rotated_refresh_token(mock_creds_cls):
+    mock_creds = MagicMock()
+    mock_creds.token = "at-refreshed"
+    mock_creds.refresh_token = "rt-rotated"  # Google rotated it
+    mock_creds.expiry = None
+    mock_creds_cls.return_value = mock_creds
+
+    result = oauth.refresh_access_token("rt-old")
+
+    assert result["refresh_token"] == "rt-rotated"

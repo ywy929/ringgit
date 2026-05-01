@@ -111,3 +111,8 @@ class FetchResult(BaseModel):
     email: str
     statements_found: int
     statements_processed: list[UploadResult]
+    # ok: refresh + fetch succeeded.
+    # auth_failed: refresh_token revoked/invalid — user needs to Reconnect Gmail.
+    # fetch_failed: transient (network, Gmail API hiccup) — user can retry.
+    status: str = "ok"
+    error_message: str | None = None

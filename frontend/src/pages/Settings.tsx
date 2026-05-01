@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
-import type { Account, Category, KeywordMapping, EmailAccount } from '../types'
+import type { Account, Category, KeywordMapping, EmailAccount, FetchResult } from '../types'
 import {
-  getEmailAccounts, deleteEmailAccount,
+  getEmailAccounts, deleteEmailAccount, fetchEmails,
   getAccounts, createAccount, deleteAccount,
   getCategories, createCategory,
   getKeywordMappings, deleteKeywordMapping,
@@ -19,6 +19,8 @@ export default function Settings() {
   const [newAccount, setNewAccount] = useState({ name: '', bank: BANKS[0], type: ACCOUNT_TYPES[0] })
   const [newCategory, setNewCategory] = useState('')
   const [toast, setToast] = useState<string | null>(null)
+  const [fetchResults, setFetchResults] = useState<Record<string, FetchResult>>({})
+  const [fetching, setFetching] = useState(false)
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -43,6 +45,20 @@ export default function Settings() {
   const handleDisconnectEmail = async (id: number) => {
     await deleteEmailAccount(id)
     setEmails(prev => prev.filter(e => e.id !== id))
+  }
+
+  const handleFetchEmails = async () => {
+    setFetching(true)
+    try {
+      const results = await fetchEmails()
+      const byEmail: Record<string, FetchResult> = {}
+      for (const r of results) byEmail[r.email] = r
+      setFetchResults(byEmail)
+      // Refresh last_fetched_at on the email rows.
+      getEmailAccounts().then(setEmails).catch(() => {})
+    } finally {
+      setFetching(false)
+    }
   }
 
   const handleAddAccount = async (e: React.FormEvent) => {
@@ -89,26 +105,62 @@ export default function Settings() {
           <div className="ledger-card-header">Gmail Accounts</div>
           <div className="p-5">
             {emails.length === 0 && <div className="text-sm text-ink-whisper">No email accounts connected</div>}
-            {emails.map(em => (
-              <div key={em.id} className="flex items-center justify-between py-3 border-b border-rule last:border-b-0">
-                <div>
-                  <span className="text-sm font-semibold text-ink">{em.email}</span>
-                  <span className="font-label text-xs text-ink-whisper ml-3">
-                    {em.last_fetched_at ? `Last fetched: ${new Date(em.last_fetched_at).toLocaleDateString('en-MY')}` : 'Never fetched'}
-                  </span>
+            {emails.map(em => {
+              const fr = fetchResults[em.email]
+              return (
+                <div key={em.id} className="py-3 border-b border-rule last:border-b-0">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-sm font-semibold text-ink">{em.email}</span>
+                      <span className="font-label text-xs text-ink-whisper ml-3">
+                        {em.last_fetched_at ? `Last fetched: ${new Date(em.last_fetched_at).toLocaleDateString('en-MY')}` : 'Never fetched'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {fr?.status === 'auth_failed' && (
+                        <a href="http://localhost:8000/api/oauth/start"
+                          className="text-xs font-bold uppercase tracking-wide text-white bg-negative hover:opacity-90 px-3 py-1.5 rounded border border-negative transition-opacity">
+                          Reconnect
+                        </a>
+                      )}
+                      <button onClick={() => handleDisconnectEmail(em.id)}
+                        className="text-xs font-bold uppercase tracking-wide text-negative hover:bg-negative hover:text-white px-3 py-1.5 rounded border border-negative transition-colors">
+                        Disconnect
+                      </button>
+                    </div>
+                  </div>
+                  {fr && (
+                    <div className="mt-2 text-xs">
+                      {fr.status === 'ok' && (
+                        <span className="text-ink-light">
+                          {fr.statements_found === 0 ? 'No new statements.' : `${fr.statements_found} statement(s) found, ${fr.statements_processed.filter(p => p.status === 'done').length} imported.`}
+                        </span>
+                      )}
+                      {fr.status === 'auth_failed' && (
+                        <span className="text-negative">Authentication expired. Reconnect to continue.</span>
+                      )}
+                      {fr.status === 'fetch_failed' && (
+                        <span className="text-negative">Fetch failed: {fr.error_message ?? 'unknown error'}. Try again in a moment.</span>
+                      )}
+                    </div>
+                  )}
                 </div>
-                <button onClick={() => handleDisconnectEmail(em.id)}
-                  className="text-xs font-bold uppercase tracking-wide text-negative hover:bg-negative hover:text-white px-3 py-1.5 rounded border border-negative transition-colors">
-                  Disconnect
-                </button>
+              )
+            })}
+            <div className="pt-4 mt-2 border-t border-rule flex items-center justify-between gap-3">
+              <div>
+                <a href="http://localhost:8000/api/oauth/start"
+                  className="inline-block bg-accent-ink text-white font-bold text-sm uppercase tracking-wide px-5 py-2 rounded hover:bg-accent-deep transition-colors">
+                  Connect Gmail
+                </a>
+                <span className="ml-3 text-xs text-ink-whisper">Opens Google consent — you can connect multiple accounts.</span>
               </div>
-            ))}
-            <div className="pt-4 mt-2 border-t border-rule">
-              <a href="http://localhost:8000/api/oauth/start"
-                className="inline-block bg-accent-ink text-white font-bold text-sm uppercase tracking-wide px-5 py-2 rounded hover:bg-accent-deep transition-colors">
-                Connect Gmail
-              </a>
-              <span className="ml-3 text-xs text-ink-whisper">Opens Google consent — you can connect multiple accounts.</span>
+              {emails.length > 0 && (
+                <button onClick={handleFetchEmails} disabled={fetching}
+                  className="text-sm font-bold uppercase tracking-wide text-ink hover:bg-ink hover:text-white px-4 py-2 rounded border border-ink transition-colors disabled:opacity-50">
+                  {fetching ? 'Fetching…' : 'Fetch now'}
+                </button>
+              )}
             </div>
           </div>
         </div>

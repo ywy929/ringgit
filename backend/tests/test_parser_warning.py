@@ -1,18 +1,8 @@
 import logging
-import shutil
 from unittest.mock import patch
 
-import pytest
-
 from app.models import Account
-from app.routers.email import _process_fetched_pdf, PDF_ROOT
-
-
-@pytest.fixture(autouse=True)
-def _clean_pdf_root():
-    yield
-    if PDF_ROOT.exists():
-        shutil.rmtree(PDF_ROOT)
+from app.routers.email import _process_fetched_pdf
 
 
 class _SilentParser:

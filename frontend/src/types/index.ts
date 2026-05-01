@@ -88,4 +88,6 @@ export interface FetchResult {
   email: string
   statements_found: number
   statements_processed: UploadResult[]
+  status: 'ok' | 'auth_failed' | 'fetch_failed'
+  error_message: string | null
 }

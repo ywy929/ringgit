@@ -1,6 +1,7 @@
 """OAuth consent flow endpoints.
 
-State is kept in a process-local dict with a 10-minute TTL — sufficient for
+State is persisted in the oauth_states table (10-minute TTL) so the flow
+survives a uvicorn --reload between /start and /callback. Sufficient for
 single-user local usage; no distributed session store needed.
 """
 import secrets
@@ -13,36 +14,37 @@ from sqlalchemy.orm import Session
 
 from app.config import FRONTEND_URL
 from app.database import get_db
-from app.models import EmailAccount
+from app.models import EmailAccount, OAuthState
 from app.services.oauth import build_auth_url, exchange_code_for_tokens
 
 router = APIRouter()
 
 _STATE_TTL_SECONDS = 600
-_pending_states: dict[str, float] = {}
 
 
-def _cleanup_expired_states() -> None:
-    now = time.time()
-    for key in [k for k, exp in _pending_states.items() if exp < now]:
-        _pending_states.pop(key, None)
+def _cleanup_expired_states(db: Session) -> None:
+    db.query(OAuthState).filter(OAuthState.expires_at < time.time()).delete()
+    db.commit()
 
 
 @router.get("/api/oauth/start")
-def oauth_start() -> RedirectResponse:
-    _cleanup_expired_states()
+def oauth_start(db: Session = Depends(get_db)) -> RedirectResponse:
+    _cleanup_expired_states(db)
     state = secrets.token_urlsafe(32)
-    _pending_states[state] = time.time() + _STATE_TTL_SECONDS
+    db.add(OAuthState(state=state, expires_at=time.time() + _STATE_TTL_SECONDS))
+    db.commit()
     url = build_auth_url(state=state)
     return RedirectResponse(url=url, status_code=307)
 
 
 @router.get("/api/oauth/callback")
 def oauth_callback(code: str, state: str, db: Session = Depends(get_db)) -> RedirectResponse:
-    _cleanup_expired_states()
-    if state not in _pending_states:
+    _cleanup_expired_states(db)
+    row = db.query(OAuthState).filter_by(state=state).first()
+    if row is None:
         raise HTTPException(status_code=400, detail="Invalid or expired state")
-    _pending_states.pop(state, None)
+    db.delete(row)
+    db.commit()
 
     tokens = exchange_code_for_tokens(code)
 

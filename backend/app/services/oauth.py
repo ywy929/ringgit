@@ -76,4 +76,10 @@ def refresh_access_token(refresh_token: str) -> dict:
     )
     creds.refresh(Request())
     expires_at = creds.expiry.isoformat() if creds.expiry else None
-    return {"access_token": creds.token, "expires_at": expires_at}
+    # creds.refresh_token is updated to the new value if Google rotated it,
+    # otherwise stays as the input. Return it so the caller can persist.
+    return {
+        "access_token": creds.token,
+        "refresh_token": creds.refresh_token,
+        "expires_at": expires_at,
+    }
