@@ -57,6 +57,8 @@ class Statement(Base):
     imported_at: Mapped[str] = mapped_column(String(30), default=_utcnow_iso)
     period_month: Mapped[str] = mapped_column(String(7), nullable=False)
     file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    needs_review: Mapped[bool] = mapped_column(Boolean, default=False)
+    reconciliation_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     transactions: Mapped[list["Transaction"]] = relationship(back_populates="statement")
 
