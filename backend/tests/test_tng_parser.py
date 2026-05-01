@@ -109,9 +109,10 @@ def test_new_format_duitnow_receive_is_credit():
     assert incoming["date"] == "2025-01-20"
     assert incoming["type"] == "credit"
     assert incoming["amount"] == 200.00
-    # Both halves of the split DUITNOW_RECEI/VEFROM type should survive.
-    assert "DUITNOW_RECEI" in incoming["description"]
-    assert "VEFROM" in incoming["description"]
+    # The split DUITNOW_RECEI/VEFROM should be rejoined into the full atomic
+    # type identifier (no space artifact from PyMuPDF cell wrapping).
+    assert "DUITNOW_RECEIVEFROM" in incoming["description"]
+    assert "DUITNOW_RECEI VEFROM" not in incoming["description"]
 
 
 def test_new_format_duitnow_qr_payment():
@@ -123,6 +124,264 @@ def test_new_format_duitnow_qr_payment():
     # Two-line merchant description should be joined.
     assert "RESTORAN TEST" in qr["description"]
     assert "PINANG" in qr["description"]
+    # The trailing "20250115101" reference fragment glued to "DuitNow QR TNGD"
+    # in the source PDF must NOT leak into the description.
+    assert "20250115101" not in qr["description"]
+    assert "DuitNow QR TNGD" in qr["description"]
+
+
+def test_payment_with_reload_in_description_is_debit():
+    # "Payment" type whose description contains the word "Card Reload" must
+    # remain a debit — credit detection looks at the TYPE column, not the
+    # whole chunk text.
+    text = """TNG WALLET TRANSACTION HISTORY
+1 August 2025 - 31 August 2025
+TEST USER
+1000005200000000
+Registered Name
+Wallet ID
+Account Status
+Generated Date & Time
+Transaction Period
+1 September 2025 10:00 AM
+Active
+Date
+Status
+Transaction Type
+Reference
+Description
+Details
+Amount (RM)
+Wallet Balance
+21/8/2025
+Success
+Payment
+20250821101
+10000010000
+TNGOW3MY1
+71114807495
+985
+Card Reload
+202508212112128001001711173976
+33540
+RM10.00
+RM270.49
+"""
+    txs = TnGParser().parse(text)
+    assert len(txs) == 1
+    assert txs[0]["type"] == "debit"
+    assert txs[0]["amount"] == 10.00
+    assert "Card Reload" in txs[0]["description"]
+
+
+def test_cashback_is_credit():
+    text = """TNG WALLET TRANSACTION HISTORY
+1 April 2026 - 30 April 2026
+TEST USER
+1000005200000000
+Registered Name
+Wallet ID
+Account Status
+Generated Date & Time
+Transaction Period
+1 May 2026 10:00 AM
+Active
+Date
+Status
+Transaction Type
+Reference
+Description
+Details
+Amount (RM)
+Wallet Balance
+13/4/2026
+Success
+Cashback
+20260413211
+22590230017
+11111493626
+59
+7-Eleven RM1 Cashback with Min.
+Spend RM11
+2026041310110000010000TNGOW3
+MY171114883347208
+RM1.00
+RM13.21
+"""
+    txs = TnGParser().parse(text)
+    assert len(txs) == 1
+    assert txs[0]["type"] == "credit"
+    assert txs[0]["amount"] == 1.00
+    assert "Cashback" in txs[0]["description"]
+
+
+def test_receive_from_wallet_is_credit():
+    text = """TNG WALLET TRANSACTION HISTORY
+1 September 2025 - 30 September 2025
+TEST USER
+1000005200000000
+Registered Name
+Wallet ID
+Account Status
+Generated Date & Time
+Transaction Period
+1 October 2025 10:00 AM
+Active
+Date
+Status
+Transaction Type
+Reference
+Description
+Details
+Amount (RM)
+Wallet Balance
+16/9/2025
+Success
+Receive from Wallet20250916111
+21700010100
+17111484151
+6033
+SOME PAYER
+2025091610110000010000TNGOW3
+MY171114855292106
+RM50.00
+RM200.00
+"""
+    txs = TnGParser().parse(text)
+    assert len(txs) == 1
+    assert txs[0]["type"] == "credit"
+    assert txs[0]["amount"] == 50.00
+
+
+def test_no_whitespace_glued_ref_is_stripped():
+    # Some Payment-type rows render the merchant name and a long Details
+    # reference glued together with NO whitespace between them, e.g.
+    # "CASE ZONE (SUNWAY CARNIVAL)202508112112128001101711140285".
+    # The trailing pure-digit run must be stripped from the description.
+    text = """TNG WALLET TRANSACTION HISTORY
+1 January 2025 - 31 January 2025
+TEST USER
+1000005200000000
+Registered Name
+Wallet ID
+Account Status
+Generated Date & Time
+Transaction Period
+1 February 2025 10:00 AM
+Active
+Date
+Status
+Transaction Type
+Reference
+Description
+Details
+Amount (RM)
+Wallet Balance
+11/8/2025
+Success
+Payment
+20250811101
+10000010000
+TNGOW3MY1
+71114804604
+626
+CASE ZONE (SUNWAY CARNIVAL)202508112112128001101711140285
+11200
+RM15.00
+RM25.85
+"""
+    txs = TnGParser().parse(text)
+    assert len(txs) == 1
+    desc = txs[0]["description"]
+    assert "CASE ZONE (SUNWAY CARNIVAL)" in desc
+    # The 30-digit ref must NOT appear anywhere in the description.
+    assert "202508112112128001101711140285" not in desc
+    # Nor the 5-digit fragment from the next line.
+    assert "11200" not in desc
+
+
+def test_uppercase_name_words_are_not_stripped_as_refs():
+    # Multi-line description with a pure-letter 8+ char surname continuation
+    # (e.g., "MERVIN CHRISTOPHER" / "THESEIRA"). The continuation must not be
+    # filtered as if it were a reference code.
+    text = """TNG WALLET TRANSACTION HISTORY
+1 January 2025 - 31 January 2025
+TEST USER
+1000005200000000
+Registered Name
+Wallet ID
+Account Status
+Generated Date & Time
+Transaction Period
+1 February 2025 10:00 AM
+Active
+Date
+Status
+Transaction Type
+Reference
+Description
+Details
+Amount (RM)
+Wallet Balance
+30/4/2025
+Success
+Transfer to Wallet
+20250430101
+11000010000
+TNGOW3MY1
+71114886142
+3509
+MERVIN CHRISTOPHER
+THESEIRA
+RM10.00
+RM75.61
+"""
+    txs = TnGParser().parse(text)
+    assert len(txs) == 1
+    desc = txs[0]["description"]
+    assert "MERVIN CHRISTOPHER" in desc
+    assert "THESEIRA" in desc
+
+
+def test_uppercase_location_words_are_not_stripped_as_refs():
+    # All-letter uppercase tokens of 8+ chars (e.g., DAMANSARA, PAVLONDM) are
+    # location names, not references — they must survive description cleanup.
+    text = """TNG WALLET TRANSACTION HISTORY
+1 January 2025 - 31 January 2025
+TEST USER
+1000005200000000
+Registered Name
+Wallet ID
+Account Status
+Generated Date & Time
+Transaction Period
+1 February 2025 10:00 AM
+Active
+Date
+Status
+Transaction Type
+Reference
+Description
+Details
+Amount (RM)
+Wallet Balance
+20/1/2025
+Success
+DuitNow QR
+20250120101
+10000010000
+TNGOW3MY1
+71114854480
+515
+BEUTEA PAVILION DAMANSARA
+202501202112128001001711107748
+29536
+RM17.90
+RM55.57
+"""
+    txs = TnGParser().parse(text)
+    assert len(txs) == 1
+    assert "DAMANSARA" in txs[0]["description"]
 
 
 def test_legacy_populates_external_reference_from_trans_no():
@@ -148,3 +407,31 @@ def test_new_format_skips_email_footer():
     for tx in txs:
         assert "system generated" not in tx["description"]
         assert "do not reply" not in tx["description"].lower()
+
+
+# ----- is_credit_type() helper tests -----
+
+from app.services.parsers.tng import is_credit_type
+
+
+def test_is_credit_type_known_credit_types():
+    # Five canonical credit types — including the line-split DUITNOW_RECEI
+    # form where chunk[2] alone is the prefix.
+    assert is_credit_type("DUITNOW_RECEI") is True
+    assert is_credit_type("DUITNOW_RECEIVEFROM") is True
+    assert is_credit_type("Receive from Wallet20250916111") is True
+    assert is_credit_type("Reload") is True
+    assert is_credit_type("Refund") is True
+    assert is_credit_type("Cashback") is True
+
+
+def test_is_credit_type_known_debit_types():
+    # All Payment / RFID Payment / DuitNow QR / Transfer / PayDirect / DUITNOW_TRANSFER
+    # variants must come back False so credits aren't accidentally flipped.
+    assert is_credit_type("Payment") is False
+    assert is_credit_type("RFID Payment") is False
+    assert is_credit_type("DuitNow QR") is False
+    assert is_credit_type("DuitNow QR TNGD 20251102101") is False
+    assert is_credit_type("Transfer to Wallet") is False
+    assert is_credit_type("PayDirect Payment 20251017101") is False
+    assert is_credit_type("DUITNOW_TRANS") is False

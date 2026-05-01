@@ -39,10 +39,15 @@ _RM_RE = re.compile(r"^RM(\d+(?:,\d{3})*\.\d{2})$")
 _NEW_PERIOD_RE = re.compile(r"(\d{1,2})\s+(\w+)\s+(\d{4})\s*-\s*\d{1,2}\s+\w+\s+\d{4}")
 # Reference tokens to drop from descriptions:
 _PURE_DIGITS_RE = re.compile(r"^\d+$")  # any pure-digit line is a ref part
-# Matches reference codes — long alnum, OR letters+digits combinations of any length.
-# Won't match pure-letter words under 8 chars (so "VEFROM", "RFID" etc. stay in
-# descriptions as type fragments).
-_ALNUM_REF_RE = re.compile(r"^[A-Z0-9]{8,}$|^[A-Z]+\d+[A-Z0-9]*$|^\d+[A-Z]+[A-Z0-9]*$")
+# Matches reference codes. All three alternatives require at least one digit
+# so pure-letter location/name tokens (THESEIRA, DAMANSARA, PAVLONDM, etc.)
+# survive in descriptions:
+#   1. 8+ alnum with at least one digit (TNGOW3MY1, MY171114855292106).
+#   2. Letters-then-digits run, any length (TNGOW3, RM3 etc. — short ref tail).
+#   3. Digits-then-letters run, any length (3MY1, etc.).
+_ALNUM_REF_RE = re.compile(
+    r"^(?=[A-Z0-9]*\d)[A-Z0-9]{8,}$|^[A-Z]+\d+[A-Z0-9]*$|^\d+[A-Z]+[A-Z0-9]*$"
+)
 # Datetime in details column (can be standalone or appended to description):
 _DETAILS_DATETIME_RE = re.compile(r"\d{1,2}/\d{1,2}/\d{4}\s+\d{1,2}:\d{2}\s+(?:AM|PM)", re.IGNORECASE)
 # Footer lines that may appear mid-document at page breaks:
@@ -53,6 +58,33 @@ _FOOTER_PATTERNS = (
     "careline",
     "+603",
 )
+
+# Known TnG transaction-type tokens that PyMuPDF splits across lines because
+# the source cell wraps. Joining with a space is harmless for words like
+# "PLUS - JURU" but wrong for atomic identifiers like "DUITNOW_RECEIVEFROM".
+# Add more entries as new split patterns are observed in real PDFs.
+_TYPE_REJOIN = (
+    ("DUITNOW_RECEI VEFROM", "DUITNOW_RECEIVEFROM"),
+)
+
+
+def is_credit_type(type_text: str) -> bool:
+    """Whether a TnG transaction-type string indicates a credit (money in).
+
+    Shared by the parser's per-row classification and the reconciler's
+    sign normalization so the two cannot drift apart. Empty / unknown types
+    fall through to debit, which is the safer default for accounting.
+    """
+    if not type_text:
+        return False
+    upper = type_text.upper().replace(" ", "")
+    return (
+        upper.startswith("DUITNOW_RECEI")
+        or upper.startswith("RECEIVE")
+        or upper.startswith("RELOAD")
+        or upper.startswith("REFUND")
+        or upper.startswith("CASHBACK")
+    )
 
 
 class TnGParser(BaseParser):
@@ -244,16 +276,15 @@ class TnGParser(BaseParser):
         ]
         external_reference = "|".join(ref_parts) if ref_parts else None
 
-        # Credit detection: DUITNOW_RECEIVEFROM (often line-split as DUITNOW_RECEI / VEFROM)
-        # and Reload variants are the only credits. Everything else (Payment, RFID
-        # Payment, DuitNow QR, Transfer To, etc.) is a debit.
-        compact = "".join(chunk).upper().replace(" ", "")
-        is_credit = (
-            "RECEIVEFROM" in compact
-            or "RELOAD" in compact
-            or "REFUND" in compact
-        )
-        tx_type = "credit" if is_credit else "debit"
+        # Credit detection: check the TYPE column specifically, not the whole
+        # chunk. (A "Payment" tx with "Card Reload" in its description is a
+        # debit, not a credit — the user paid to reload another card.)
+        # The TYPE column is chunk[2] in normal cases, with chunk[3] joined
+        # for the DUITNOW_RECEI/VEFROM line-split.
+        type_text = chunk[2] if len(chunk) > 2 else ""
+        if len(chunk) > 3 and chunk[2].upper() == "DUITNOW_RECEI":
+            type_text = chunk[2] + chunk[3]
+        tx_type = "credit" if is_credit_type(type_text) else "debit"
 
         # Description: keep human-readable lines (transaction type, merchant/location).
         # Drop reference IDs, RM amounts, "Success" status, and embedded datetimes.
@@ -269,6 +300,18 @@ class TnGParser(BaseParser):
                 continue  # TNGOW3MY1, MY171114855292106, etc.
             # Strip embedded "DD/MM/YYYY HH:MM AM/PM" details from descriptions.
             cleaned = _DETAILS_DATETIME_RE.sub("", ln).strip()
+            # Refs sometimes glue onto the description without a separator
+            # ("CASE ZONE (SUNWAY CARNIVAL)202508112112128001..."). Strip any
+            # trailing run of 10+ pure digits — real merchant names virtually
+            # never end with that many consecutive digits.
+            cleaned = re.sub(r"\d{10,}$", "", cleaned).strip()
+            # Whitespace-separated alnum-with-digit refs (e.g.,
+            # "DuitNow QR TNGD 20251102101", "MERCHANT TNGOW3MY1"). Require
+            # at least one digit in the token so uppercase location names
+            # like "DAMANSARA" or "PAVLONDM" stay.
+            m = re.search(r"\s+([A-Z0-9]{8,})$", cleaned)
+            if m and any(c.isdigit() for c in m.group(1)):
+                cleaned = cleaned[:m.start()].strip()
             if not cleaned:
                 continue
             # If the cleaned line is now just a numeric or alnum ref residue, skip.
@@ -277,6 +320,8 @@ class TnGParser(BaseParser):
             desc_parts.append(cleaned)
 
         description = re.sub(r"\s+", " ", " ".join(desc_parts)).strip()
+        for split, joined in _TYPE_REJOIN:
+            description = description.replace(split, joined)
 
         tx: ParsedTransaction = ParsedTransaction(
             date=date_str,
