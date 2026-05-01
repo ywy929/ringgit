@@ -9,6 +9,7 @@ from app.models import Account, Category, Statement, Transaction
 from app.schemas import UploadResult
 from app.services.categorizer import Categorizer
 from app.services.parser_registry import ParserRegistry
+from app.services.reconciler import reconcile_statement
 from app.services.recurring_detector import RecurringDetector
 from app.services.transfer_detector import TransferDetector
 
@@ -178,6 +179,12 @@ async def upload_statement(
         inserted += 1
 
     db.commit()
+
+    rec = reconcile_statement(stmt.id, db)
+    if not rec.ok:
+        stmt.needs_review = True
+        stmt.reconciliation_note = rec.note
+        db.commit()
 
     # Run transfer detection
     if period_month:

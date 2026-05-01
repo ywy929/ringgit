@@ -80,3 +80,27 @@ def test_upload_replaces_encrypted_stub_from_email_fetch(client, db, monkeypatch
     stmts = db.query(Statement).all()
     assert len(stmts) == 1
     assert stmts[0].bank == "maybank"
+
+
+def test_upload_reconciler_hook_flags_failure(client, db, monkeypatch):
+    from app.services.reconciler import ReconcileResult
+
+    def _fake_reconcile(stmt_id, db_arg):
+        return ReconcileResult(ok=False, note="upload-test failure", checks_run=["count"])
+
+    monkeypatch.setattr("app.routers.upload.reconcile_statement", _fake_reconcile)
+
+    seed_database(db)
+    acc = Account(name="Maybank Savings", bank="maybank", type="savings")
+    db.add(acc); db.commit()
+    import app.routers.upload as upload_mod
+    monkeypatch.setattr(upload_mod, "extract_text_from_pdf", lambda content, password: SAMPLE_TEXT)
+    response = client.post(
+        "/api/upload",
+        files={"file": ("maybank.pdf", b"bytes", "application/pdf")},
+    )
+    assert response.json()["status"] == "done"
+
+    stmt = db.query(Statement).first()
+    assert stmt.needs_review is True
+    assert stmt.reconciliation_note == "upload-test failure"
