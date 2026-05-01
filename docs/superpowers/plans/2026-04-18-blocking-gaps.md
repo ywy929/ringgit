@@ -1640,3 +1640,48 @@ Two activities happen AFTER this plan ships. They are ongoing work, not plan tas
 **Placeholder scan:** no TBD/TODO markers, every step has concrete code or a concrete command.
 
 **Type consistency:** `access_token` / `refresh_token` / `token_expires_at` column names used identically across Tasks 3, 4, 5, 6. `_process_fetched_pdf(filename, content, db, email)` signature is introduced in Task 6 (via caller update), referenced by Task 9 tests, then fully re-implemented in Task 9. `PDF_ROOT`, `BACKEND_ROOT`, `build_auth_url`, `exchange_code_for_tokens`, `refresh_access_token` names are consistent across their producer and consumer tasks.
+
+---
+
+## Post-ship corrections (2026-05-01)
+
+A review pass after the plan shipped surfaced six issues. All fixed in follow-up commits; documented here so future work knows what shifted away from the original tasks.
+
+### 1. Test fixture was wiping the production `fetched_pdfs/` directory
+**Where:** `backend/tests/test_pdf_backup.py` (and later `backend/tests/test_parser_warning.py`) had an autouse fixture that did `shutil.rmtree(PDF_ROOT)` against the real `backend/fetched_pdfs/` path. After any real Gmail fetch had landed PDFs there, the next `pytest` run silently deleted them — the exact data Phase 2 was built to preserve.
+
+**Fix:** moved isolation into `backend/tests/conftest.py` as an autouse `_isolated_pdf_root` fixture that monkeypatches `app.routers.email.BACKEND_ROOT` and `app.routers.email.PDF_ROOT` to a per-test `tmp_path`. The destructive fixtures in both test files were removed. Tests that need to inspect the isolated dir request a new `pdf_root` fixture.
+
+### 2. `refresh_access_token` dropped rotated refresh tokens
+**Where:** `backend/app/services/oauth.py` returned only `{access_token, expires_at}`. If Google ever rotated the `refresh_token`, the new value was silently discarded and the next refresh would use the stale token, forcing re-consent earlier than necessary. (Google web OAuth typically does not rotate, but the code shouldn't depend on that.)
+
+**Fix:** `refresh_access_token` now returns `refresh_token` alongside the other fields. `fetch_all_accounts` in `backend/app/routers/email.py` persists `acct.refresh_token = refreshed["refresh_token"]` when the field is non-None. New tests `test_refresh_access_token_returns_rotated_refresh_token` and `test_fetch_persists_rotated_refresh_token` pin the behavior.
+
+### 3. OAuth `_pending_states` dict didn't survive `uvicorn --reload`
+**Where:** `backend/app/routers/oauth.py` kept pending state tokens in a module-level `dict`. Any backend file edit between the user clicking "Connect Gmail" and Google's redirect back wiped the dict, and the callback returned 400 "Invalid or expired state". Likely first-experience failure given `uvicorn --reload` is in the README.
+
+**Fix:** added an `OAuthState` model (`state` PK, `expires_at` epoch float) in `backend/app/models.py`. `oauth_start` writes the state row; `oauth_callback` reads + deletes it; `_cleanup_expired_states` is now a bulk DELETE. The lifespan `Base.metadata.create_all` auto-creates the new table on next start — no migration needed. New tests `test_oauth_callback_succeeds_with_state_persisted_before_restart` and `test_oauth_callback_rejects_expired_state` verify the new behavior.
+
+### 4. Failure-path PDFs re-wrote on every poll
+**Where:** the Task 9 dedup gate keyed on `Statement.file_hash`, but the unknown-bank and no-account-for-bank failure paths returned without inserting a `Statement` row. Same PDF arriving on every fetch hit the gate-miss → re-extracted text → re-wrote the file. Functionally just an overwrite, but it hid a real bug class: a parser broken for bank X meant the file got re-written forever with no signal.
+
+**Fix:** `_process_fetched_pdf` in `backend/app/routers/email.py` now records a `Statement` row in both failure paths (`bank="unknown"` or the detected bank, empty `period_month` if unknown, `file_path` populated). New tests `test_unknown_bank_dedup_blocks_second_fetch` and `test_no_account_for_bank_dedup_blocks_second_fetch` confirm the second fetch hits `status="duplicate"`.
+
+**Caveat:** if a parser is later updated to handle a bank that previously failed, dedup blocks the retry. Recovery is `DELETE FROM statements WHERE file_hash = ?`. Acceptable for single-user dev workflow.
+
+### 5. `datetime.utcnow()` deprecation noise
+**Where:** seven call sites in `models.py`, `routers/email.py`, and `tests/test_email_fetch_refresh.py` used the deprecated `datetime.utcnow()`. The test suite emitted ~1279 deprecation warnings.
+
+**Fix:** added `_utcnow_iso()` helper in `models.py` and `_utcnow_naive()` helper in `routers/email.py`, both built on `datetime.now(timezone.utc).replace(tzinfo=None)`. Kept the naive-UTC string format so the existing schema column widths (`String(30)`) and `_token_near_expiry`'s bias-cancelling `.timestamp()` comparison stay intact — switching to tz-aware would break the comparison without further work. Warning count dropped 1279 → 8 (remaining 8 are unrelated SQLAlchemy `Query.get()` legacy + pytest_asyncio config).
+
+### 6. Per-account auth-failure handling
+**Where:** `fetch_all_accounts` had no try/except around `refresh_access_token` or `fetcher.fetch_statements`. A single revoked refresh token aborted the whole loop, no other accounts got fetched, the frontend saw a generic 500. The README told the user to "click Connect Gmail again" but nothing in the response routed them there.
+
+**Fix:**
+- `backend/app/schemas.py`: added `status: str = "ok"` and `error_message: str | None = None` to `FetchResult`.
+- `backend/app/routers/email.py`: wrapped refresh in `try/except RefreshError` (per-account `auth_failed`, loop continues) and Gmail fetch in `try/except Exception` (per-account `fetch_failed`).
+- `frontend/src/types/index.ts`: `FetchResult` gained the two new fields.
+- `frontend/src/pages/Settings.tsx`: wired up the previously-unused `fetchEmails` API helper to a new "Fetch now" button. Per-account row now renders the latest fetch result inline; rows with `status="auth_failed"` get a red "Reconnect" CTA pointing at `/api/oauth/start`.
+- New tests `test_fetch_marks_account_auth_failed_when_refresh_raises` (verifies one bad token doesn't bomb the loop) and `test_fetch_marks_account_fetch_failed_when_gmail_raises`.
+
+**Browser verification status:** typecheck clean, but the new Settings UI was not opened in a browser. Visual layout, the Fetch button position on narrow widths, and the status-text wrapping should be eyeballed before the next ship.

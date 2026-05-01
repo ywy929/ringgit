@@ -51,7 +51,7 @@ Deliberately out of scope for this work:
 | — | add `refresh_token: str \| None` |
 | — | add `token_expires_at: str \| None` (ISO-8601 UTC) |
 
-Applied by deleting `backend/ringgit.db` and letting `lifespan` recreate + reseed on next backend start. The database contains no real transactions yet.
+Applied by deleting `backend/ringgit.db` and recreating the schema via either `lifespan` on next backend start or a one-off `Base.metadata.create_all` command. The database contains no real transactions yet.
 
 ### Config
 
