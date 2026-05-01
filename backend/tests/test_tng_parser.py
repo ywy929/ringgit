@@ -425,6 +425,13 @@ def test_is_credit_type_known_credit_types():
     assert is_credit_type("Cashback") is True
 
 
+def test_is_credit_type_legacy_ota_reload():
+    # Legacy "Customer Transactions Statement" format puts the type as
+    # "OTA Reload" (or "OTA\nReload" pre-join). The "OTA " prefix means a
+    # plain startswith("RELOAD") check would miss it. Use substring `in`.
+    assert is_credit_type("OTA Reload") is True
+
+
 def test_is_credit_type_known_debit_types():
     # All Payment / RFID Payment / DuitNow QR / Transfer / PayDirect / DUITNOW_TRANSFER
     # variants must come back False so credits aren't accidentally flipped.

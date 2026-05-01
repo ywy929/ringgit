@@ -74,16 +74,22 @@ def is_credit_type(type_text: str) -> bool:
     Shared by the parser's per-row classification and the reconciler's
     sign normalization so the two cannot drift apart. Empty / unknown types
     fall through to debit, which is the safer default for accounting.
+
+    Substring (`in`) match rather than `startswith` so the legacy "OTA Reload"
+    variant ("OTARELOAD" after normalization) matches the "RELOAD" keyword.
+    Safe because the new-format "Payment Card Reload" case puts "Reload" in
+    the description column, not the type column — `is_credit_type` only ever
+    sees the type column.
     """
     if not type_text:
         return False
     upper = type_text.upper().replace(" ", "")
     return (
-        upper.startswith("DUITNOW_RECEI")
-        or upper.startswith("RECEIVE")
-        or upper.startswith("RELOAD")
-        or upper.startswith("REFUND")
-        or upper.startswith("CASHBACK")
+        "DUITNOW_RECEI" in upper
+        or "RECEIVE" in upper
+        or "RELOAD" in upper
+        or "REFUND" in upper
+        or "CASHBACK" in upper
     )
 
 
