@@ -89,3 +89,93 @@ def test_check_per_row_skips_when_balance_missing():
         {"signed_amount": -3.00, "balance": 95.00},  # standalone, skip
     ]
     assert _check_per_row(rows).ok is True
+
+
+import shutil
+from pathlib import Path
+
+import pytest
+
+from app.models import Account, Statement, Transaction
+from app.services.parsers.tng import TnGParser
+from app.services.reconciler import reconcile_statement
+
+
+_FIXTURE_NAME = "tng_annual.pdf"
+_FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "real"
+_FIXTURE_PATH = _FIXTURE_DIR / _FIXTURE_NAME
+_TNG_PASSWORD = "172895255"  # owner-supplied; matches PDF_PASSWORD_TNG in .env
+
+
+def _seed_tng_account(db) -> Account:
+    acc = Account(name="TnG", bank="tng", type="ewallet")
+    db.add(acc)
+    db.commit()
+    return acc
+
+
+@pytest.mark.skipif(not _FIXTURE_PATH.exists(), reason=f"real fixture {_FIXTURE_NAME} not present")
+def test_reconcile_real_tng_annual_passes(db, monkeypatch, tmp_path):
+    # Use the existing find_tables-validated annual statement. With the regex
+    # parser's output and the real PDF, all three checks should pass.
+    import fitz
+
+    # Stage the fixture into tmp_path so file_path is portable.
+    staged = tmp_path / _FIXTURE_NAME
+    shutil.copy(_FIXTURE_PATH, staged)
+    monkeypatch.setattr("app.services.reconciler.BACKEND_ROOT", tmp_path)
+    monkeypatch.setitem(
+        __import__("app.config", fromlist=["SENDER_PASSWORDS"]).SENDER_PASSWORDS,
+        "ewallet@tngdigital.com.my",
+        _TNG_PASSWORD,
+    )
+
+    acc = _seed_tng_account(db)
+
+    # Parse & insert via the same path the reconciler will compare against.
+    doc = fitz.open(str(staged))
+    if doc.is_encrypted:
+        doc.authenticate(_TNG_PASSWORD)
+    text = "".join(p.get_text() for p in doc)
+    doc.close()
+    parser = TnGParser()
+    parsed = parser.parse(text)
+
+    stmt = Statement(
+        file_hash="annual-test-hash",
+        bank="tng",
+        source="email",
+        filename=_FIXTURE_NAME,
+        period_month=parser.extract_period_month(text) or "",
+        file_path=_FIXTURE_NAME,  # relative to monkeypatched BACKEND_ROOT
+    )
+    db.add(stmt)
+    db.flush()
+    for p in parsed:
+        db.add(Transaction(
+            statement_id=stmt.id, account_id=acc.id,
+            date=p["date"], description=p["description"],
+            amount=p["amount"], type=p["type"],
+            external_reference=p.get("external_reference"),
+        ))
+    db.commit()
+
+    result = reconcile_statement(stmt.id, db)
+    assert result.ok, f"reconciliation failed: {result.note} (checks_run={result.checks_run})"
+    assert "count" in result.checks_run
+    assert "statement" in result.checks_run
+    assert "per_row" in result.checks_run
+
+
+def test_reconcile_missing_file_skips_with_note(db, tmp_path, monkeypatch):
+    monkeypatch.setattr("app.services.reconciler.BACKEND_ROOT", tmp_path)
+    acc = _seed_tng_account(db)
+    stmt = Statement(
+        file_hash="x", bank="tng", source="email",
+        filename="gone.pdf", period_month="", file_path="gone.pdf",
+    )
+    db.add(stmt); db.commit()
+    result = reconcile_statement(stmt.id, db)
+    assert result.ok is True
+    assert "file missing" in (result.note or "")
+    assert result.checks_run == []
