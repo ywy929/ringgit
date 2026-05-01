@@ -353,3 +353,34 @@ def test_no_account_for_bank_dedup_blocks_second_fetch(db, pdf_root):
     stmts = db.query(Statement).all()
     assert len(stmts) == 1
     assert stmts[0].bank == "maybank"
+
+
+def test_reconciler_hook_flags_statement_on_failure(db, pdf_root, monkeypatch):
+    # Monkeypatch reconcile_statement to return a failure; verify the email
+    # router sets needs_review and the note on the Statement row.
+    from app.services.reconciler import ReconcileResult
+    from app.models import Statement
+
+    def _fake_reconcile(stmt_id, db_arg):
+        return ReconcileResult(ok=False, note="test failure", checks_run=["count"])
+
+    monkeypatch.setattr("app.routers.email.reconcile_statement", _fake_reconcile)
+
+    acc = _seed_account(db)
+
+    class _FakeParser:
+        bank_id = "maybank"
+        def can_parse(self, text): return True
+        def parse(self, text):
+            return [{"date": "2026-04-01", "description": "X", "amount": 1.0, "type": "debit"}]
+        def extract_period_month(self, text): return "2026-04"
+
+    with patch("app.routers.email.registry") as mock_reg, patch(
+        "app.routers.email._extract_text_from_pdf", return_value="MAYBANK"
+    ):
+        mock_reg.detect_bank.return_value = _FakeParser()
+        _process_fetched_pdf("a.pdf", _fake_pdf_bytes(), db, "u@g.com")
+
+    stmt = db.query(Statement).first()
+    assert stmt.needs_review is True
+    assert stmt.reconciliation_note == "test failure"

@@ -26,6 +26,7 @@ from app.services.categorizer import Categorizer
 from app.services.gmail_fetcher import GmailFetcher
 from app.services.oauth import refresh_access_token
 from app.services.parser_registry import ParserRegistry
+from app.services.reconciler import reconcile_statement
 from app.services.recurring_detector import RecurringDetector
 from app.services.transfer_detector import TransferDetector
 
@@ -253,6 +254,14 @@ def _process_fetched_pdf(
         inserted += 1
 
     db.commit()
+
+    # Reconcile against an independent find_tables() pass; soft-flag on failure.
+    rec = reconcile_statement(stmt.id, db)
+    if not rec.ok:
+        stmt.needs_review = True
+        stmt.reconciliation_note = rec.note
+        db.commit()
+        logger.warning("reconcile failed for stmt %d: %s", stmt.id, rec.note)
 
     if period_month and period_month != "unknown":
         TransferDetector(db).apply_transfers(period_month)
