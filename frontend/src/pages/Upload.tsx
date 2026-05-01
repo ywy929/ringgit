@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { UploadResult } from '../types'
 import { uploadStatement } from '../api/client'
 import FileDropZone from '../components/FileDropZone'
+import { bankLabel } from '../banks'
 
 const statusStyles: Record<string, string> = {
   done: 'bg-positive text-white',
@@ -72,7 +73,7 @@ export default function Upload() {
                       </span>
                     </div>
                     <div className="flex gap-4 text-sm text-ink-light">
-                      <span>Bank: <strong className="text-ink-medium">{r.bank}</strong></span>
+                      <span>Bank: <strong className="text-ink-medium">{bankLabel(r.bank)}</strong></span>
                       <span>Imported: <strong className="font-number text-positive">{r.transactions_imported}</strong></span>
                       {r.duplicates_skipped > 0 && (
                         <span>Duplicates: <strong className="font-number text-amber">{r.duplicates_skipped}</strong></span>

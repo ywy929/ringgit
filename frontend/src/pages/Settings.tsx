@@ -6,8 +6,8 @@ import {
   getCategories, createCategory,
   getKeywordMappings, deleteKeywordMapping,
 } from '../api/client'
+import { BANKS, bankLabel } from '../banks'
 
-const BANKS = ['Maybank', 'CIMB', 'Public Bank', 'Hong Leong', 'RHB', 'AmBank', 'AEON Credit', "Touch 'n Go"]
 const ACCOUNT_TYPES = ['savings', 'current', 'credit_card', 'ewallet']
 
 export default function Settings() {
@@ -16,7 +16,7 @@ export default function Settings() {
   const [categories, setCategories] = useState<Category[]>([])
   const [mappings, setMappings] = useState<KeywordMapping[]>([])
 
-  const [newAccount, setNewAccount] = useState({ name: '', bank: BANKS[0], type: ACCOUNT_TYPES[0] })
+  const [newAccount, setNewAccount] = useState({ name: '', bank: BANKS[0].value, type: ACCOUNT_TYPES[0] })
   const [newCategory, setNewCategory] = useState('')
   const [toast, setToast] = useState<string | null>(null)
   const [fetchResults, setFetchResults] = useState<Record<string, FetchResult>>({})
@@ -65,7 +65,7 @@ export default function Settings() {
     e.preventDefault()
     if (!newAccount.name.trim()) return
     await createAccount(newAccount)
-    setNewAccount({ name: '', bank: BANKS[0], type: ACCOUNT_TYPES[0] })
+    setNewAccount({ name: '', bank: BANKS[0].value, type: ACCOUNT_TYPES[0] })
     getAccounts().then(setAccounts)
   }
 
@@ -102,7 +102,15 @@ export default function Settings() {
       <div className="space-y-8">
         {/* Gmail Accounts */}
         <div className="ledger-card animate-reveal animate-reveal-1">
-          <div className="ledger-card-header">Gmail Accounts</div>
+          <div className="ledger-card-header flex items-center justify-between">
+            <span>Gmail Accounts</span>
+            {emails.length > 0 && (
+              <button onClick={handleFetchEmails} disabled={fetching}
+                className="text-xs font-bold uppercase tracking-wide text-ink hover:bg-ink hover:text-white px-3 py-1 rounded border border-ink transition-colors disabled:opacity-50">
+                {fetching ? 'Fetching…' : 'Fetch now'}
+              </button>
+            )}
+          </div>
           <div className="p-5">
             {emails.length === 0 && <div className="text-sm text-ink-whisper">No email accounts connected</div>}
             {emails.map(em => {
@@ -147,20 +155,12 @@ export default function Settings() {
                 </div>
               )
             })}
-            <div className="pt-4 mt-2 border-t border-rule flex items-center justify-between gap-3">
-              <div>
-                <a href="http://localhost:8000/api/oauth/start"
-                  className="inline-block bg-accent-ink text-white font-bold text-sm uppercase tracking-wide px-5 py-2 rounded hover:bg-accent-deep transition-colors">
-                  Connect Gmail
-                </a>
-                <span className="ml-3 text-xs text-ink-whisper">Opens Google consent — you can connect multiple accounts.</span>
-              </div>
-              {emails.length > 0 && (
-                <button onClick={handleFetchEmails} disabled={fetching}
-                  className="text-sm font-bold uppercase tracking-wide text-ink hover:bg-ink hover:text-white px-4 py-2 rounded border border-ink transition-colors disabled:opacity-50">
-                  {fetching ? 'Fetching…' : 'Fetch now'}
-                </button>
-              )}
+            <div className="pt-4 mt-2 border-t border-rule">
+              <a href="http://localhost:8000/api/oauth/start"
+                className="inline-block bg-accent-ink text-white font-bold text-sm uppercase tracking-wide px-5 py-2 rounded hover:bg-accent-deep transition-colors">
+                Connect Gmail
+              </a>
+              <span className="ml-3 text-xs text-ink-whisper">Opens Google consent — you can connect multiple accounts.</span>
             </div>
           </div>
         </div>
@@ -173,7 +173,7 @@ export default function Settings() {
               <div key={acc.id} className="flex items-center justify-between py-3 border-b border-rule last:border-b-0">
                 <div className="flex items-center gap-4">
                   <span className="text-sm font-semibold text-ink">{acc.name}</span>
-                  <span className="font-label text-xs text-ink-light">{acc.bank}</span>
+                  <span className="font-label text-xs text-ink-light">{bankLabel(acc.bank)}</span>
                   <span className="font-label text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded-sm bg-cream-deep text-ink-light border border-rule">{acc.type}</span>
                 </div>
                 <button onClick={() => handleDeleteAccount(acc.id)}
@@ -194,7 +194,7 @@ export default function Settings() {
                 <label className="font-label text-xs text-ink-light block mb-1">Bank</label>
                 <select value={newAccount.bank} onChange={e => setNewAccount(prev => ({ ...prev, bank: e.target.value }))}
                   className="border border-rule rounded px-3 py-2 bg-paper text-ink focus:border-accent focus:outline-none text-sm">
-                  {BANKS.map(b => <option key={b} value={b}>{b}</option>)}
+                  {BANKS.map(b => <option key={b.value} value={b.value}>{b.label}</option>)}
                 </select>
               </div>
               <div>

@@ -4,6 +4,7 @@ import { getTransactions, getAccounts, getCategories, createTransaction } from '
 import CategoryBadge from '../components/CategoryBadge'
 import TransactionBadge from '../components/TransactionBadge'
 import MonthSelector from '../components/MonthSelector'
+import { bankLabel } from '../banks'
 
 const currentMonth = () => {
   const d = new Date()
@@ -168,7 +169,7 @@ export default function Transactions() {
         <select value={filters.account_id ?? ''} onChange={e => updateFilter('account_id', e.target.value ? Number(e.target.value) : undefined)}
           className="border border-rule rounded px-3 py-2 bg-paper text-ink focus:border-accent focus:outline-none text-sm">
           <option value="">All Banks</option>
-          {banks.map(b => <option key={b} value="">{b}</option>)}
+          {banks.map(b => <option key={b} value="">{bankLabel(b)}</option>)}
           {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select>
         <select value={filters.category_id ?? ''} onChange={e => updateFilter('category_id', e.target.value ? Number(e.target.value) : undefined)}
@@ -201,7 +202,7 @@ export default function Transactions() {
                   {tx.is_internal_transfer && <TransactionBadge type="transfer" />}
                 </div>
                 <CategoryBadge transactionId={tx.id} categoryId={tx.category_id} categoryName={tx.category_name} onUpdate={load} />
-                <span className="font-label text-xs text-ink-whisper truncate">{tx.account_name ?? tx.bank}</span>
+                <span className="font-label text-xs text-ink-whisper truncate">{tx.account_name ?? bankLabel(tx.bank)}</span>
                 <span className={`font-number text-[17px] text-right ${amountClass(tx)}`}>
                   {tx.type === 'debit' ? '-' : '+'}{fmt(tx.amount)}
                 </span>
