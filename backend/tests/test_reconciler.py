@@ -355,3 +355,205 @@ def test_reconcile_real_aeon_credit_passes(db, monkeypatch, tmp_path):
     assert "count" in result.checks_run
     assert "statement" in result.checks_run
     assert "per_row" not in result.checks_run
+
+
+_MAYBANK_FIXTURE_NAME = "maybank_savings.pdf"
+_MAYBANK_FIXTURE_PATH = _FIXTURE_DIR / _MAYBANK_FIXTURE_NAME
+
+
+def test_reconcile_maybank_2026_synthetic_passes(db, tmp_path, monkeypatch):
+    # Render the 2026 sample as a real PDF and run the full reconciler path
+    # against it (the reconciler reads via PyMuPDF, so we need actual PDF input).
+    import fitz
+    from app.services.parsers.maybank import MaybankParser
+
+    sample_path = Path(__file__).parent.parent / "sample_data" / "maybank_sample.txt"
+    sample_text = sample_path.read_text(encoding="utf-8")
+
+    pdf_path = tmp_path / "maybank_2026_synth.pdf"
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_textbox(fitz.Rect(40, 40, 555, 800), sample_text, fontsize=8, fontname="cour")
+    doc.save(str(pdf_path))
+    doc.close()
+
+    monkeypatch.setattr("app.services.reconciler.BACKEND_ROOT", tmp_path)
+
+    acc = Account(name="Maybank Savings", bank="maybank", type="bank")
+    db.add(acc); db.commit()
+
+    parser = MaybankParser()
+    parsed = parser.parse(sample_text)
+
+    stmt = Statement(
+        file_hash="maybank-2026-synth-hash",
+        bank="maybank",
+        source="email",
+        filename="maybank_2026_synth.pdf",
+        period_month=parser.extract_period_month(sample_text) or "",
+        file_path="maybank_2026_synth.pdf",
+    )
+    db.add(stmt); db.flush()
+    for p in parsed:
+        db.add(Transaction(
+            statement_id=stmt.id, account_id=acc.id,
+            date=p["date"], description=p["description"],
+            amount=p["amount"], type=p["type"],
+        ))
+    db.commit()
+
+    result = reconcile_statement(stmt.id, db)
+    assert result.ok, f"reconciliation failed: {result.note} (checks_run={result.checks_run})"
+    assert "count" in result.checks_run
+    assert "statement" in result.checks_run
+    assert "per_row" in result.checks_run
+
+
+def test_reconcile_maybank_2018_synthetic_passes(db, tmp_path, monkeypatch):
+    # Same shape as the 2026 test, but uses the GST-era sample which has
+    # the optional ENDING BALANCE :, TOTAL CREDIT :, TOTAL DEBIT : footer.
+    import fitz
+    from app.services.parsers.maybank import MaybankParser
+
+    sample_path = Path(__file__).parent.parent / "sample_data" / "maybank_2018_sample.txt"
+    sample_text = sample_path.read_text(encoding="utf-8")
+
+    pdf_path = tmp_path / "maybank_2018_synth.pdf"
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_textbox(fitz.Rect(40, 40, 555, 800), sample_text, fontsize=8, fontname="cour")
+    doc.save(str(pdf_path))
+    doc.close()
+
+    monkeypatch.setattr("app.services.reconciler.BACKEND_ROOT", tmp_path)
+
+    acc = Account(name="Maybank Savings", bank="maybank", type="bank")
+    db.add(acc); db.commit()
+
+    parser = MaybankParser()
+    parsed = parser.parse(sample_text)
+
+    stmt = Statement(
+        file_hash="maybank-2018-synth-hash",
+        bank="maybank",
+        source="email",
+        filename="maybank_2018_synth.pdf",
+        period_month=parser.extract_period_month(sample_text) or "",
+        file_path="maybank_2018_synth.pdf",
+    )
+    db.add(stmt); db.flush()
+    for p in parsed:
+        db.add(Transaction(
+            statement_id=stmt.id, account_id=acc.id,
+            date=p["date"], description=p["description"],
+            amount=p["amount"], type=p["type"],
+        ))
+    db.commit()
+
+    result = reconcile_statement(stmt.id, db)
+    assert result.ok, f"reconciliation failed: {result.note} (checks_run={result.checks_run})"
+    assert "count" in result.checks_run
+    assert "statement" in result.checks_run
+    assert "per_row" in result.checks_run
+
+
+def test_reconcile_maybank_count_mismatch_flags(db, tmp_path, monkeypatch):
+    # Insert one extra transaction in the DB beyond what the PDF contains.
+    import fitz
+    from app.services.parsers.maybank import MaybankParser
+
+    sample_path = Path(__file__).parent.parent / "sample_data" / "maybank_sample.txt"
+    sample_text = sample_path.read_text(encoding="utf-8")
+
+    pdf_path = tmp_path / "maybank_count_mismatch.pdf"
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_textbox(fitz.Rect(40, 40, 555, 800), sample_text, fontsize=8, fontname="cour")
+    doc.save(str(pdf_path))
+    doc.close()
+
+    monkeypatch.setattr("app.services.reconciler.BACKEND_ROOT", tmp_path)
+
+    acc = Account(name="Maybank Savings", bank="maybank", type="bank")
+    db.add(acc); db.commit()
+
+    parser = MaybankParser()
+    parsed = parser.parse(sample_text)
+
+    stmt = Statement(
+        file_hash="maybank-count-mismatch-hash",
+        bank="maybank",
+        source="email",
+        filename="maybank_count_mismatch.pdf",
+        period_month=parser.extract_period_month(sample_text) or "",
+        file_path="maybank_count_mismatch.pdf",
+    )
+    db.add(stmt); db.flush()
+    for p in parsed:
+        db.add(Transaction(
+            statement_id=stmt.id, account_id=acc.id,
+            date=p["date"], description=p["description"],
+            amount=p["amount"], type=p["type"],
+        ))
+    # Inject one extra phantom transaction that's not in the PDF.
+    db.add(Transaction(
+        statement_id=stmt.id, account_id=acc.id,
+        date="2026-03-15", description="EXTRA INSERTED FOR TEST",
+        amount=99.99, type="debit",
+    ))
+    db.commit()
+
+    result = reconcile_statement(stmt.id, db)
+    assert result.ok is False
+    assert "row count mismatch" in (result.note or "")
+
+
+def test_reconcile_maybank_ending_balance_mismatch_flags(db, tmp_path, monkeypatch):
+    # Use the 2018 sample but corrupt the ENDING BALANCE line so that the
+    # explicit ending-balance cross-check fails (per-row arithmetic still ok).
+    import fitz
+    from app.services.parsers.maybank import MaybankParser
+
+    sample_path = Path(__file__).parent.parent / "sample_data" / "maybank_2018_sample.txt"
+    sample_text = sample_path.read_text(encoding="utf-8").replace(
+        "ENDING BALANCE :\n341.52", "ENDING BALANCE :\n999.99"
+    )
+
+    pdf_path = tmp_path / "maybank_ending_corrupt.pdf"
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_textbox(fitz.Rect(40, 40, 555, 800), sample_text, fontsize=8, fontname="cour")
+    doc.save(str(pdf_path))
+    doc.close()
+
+    monkeypatch.setattr("app.services.reconciler.BACKEND_ROOT", tmp_path)
+
+    acc = Account(name="Maybank Savings", bank="maybank", type="bank")
+    db.add(acc); db.commit()
+
+    parser = MaybankParser()
+    # Parse from the ORIGINAL sample text (not the corrupted PDF) so DB rows
+    # match the per-row arithmetic. The reconciler reads the corrupted PDF
+    # and detects that ENDING BALANCE doesn't match the running balance.
+    parsed = parser.parse(sample_path.read_text(encoding="utf-8"))
+
+    stmt = Statement(
+        file_hash="maybank-ending-corrupt-hash",
+        bank="maybank",
+        source="email",
+        filename="maybank_ending_corrupt.pdf",
+        period_month=parser.extract_period_month(sample_text) or "",
+        file_path="maybank_ending_corrupt.pdf",
+    )
+    db.add(stmt); db.flush()
+    for p in parsed:
+        db.add(Transaction(
+            statement_id=stmt.id, account_id=acc.id,
+            date=p["date"], description=p["description"],
+            amount=p["amount"], type=p["type"],
+        ))
+    db.commit()
+
+    result = reconcile_statement(stmt.id, db)
+    assert result.ok is False
+    assert "ending" in (result.note or "").lower()

@@ -92,6 +92,8 @@ _HEADER_CELL_VALUES = {
 _NEW_FORMAT_MARKER = "TNG WALLET TRANSACTION HISTORY"
 _LEGACY_FORMAT_MARKER = "Customer Transactions Statement"
 _AEON_MARKER = "AEON CREDIT SERVICE"
+_MAYBANK_MARKER = "Malayan Banking Berhad"
+_MAYBANK_MARKER_2 = "URUSNIAGA AKAUN"
 
 _RM_AMOUNT_RE = re.compile(r"^RM(\d+(?:,\d{3})*\.\d{2})$")
 _PLAIN_AMOUNT_RE = re.compile(r"^(\d+(?:,\d{3})*\.\d{2})$")
@@ -258,6 +260,110 @@ def _extract_rows_from_aeon_credit(text: str) -> list[dict]:
     return rows
 
 
+_MAYBANK_DATE_LINE_RE = re.compile(r"^\d{2}/\d{2}/\d{2}$")
+_MAYBANK_SIGNED_AMOUNT_RE = re.compile(r"^[\d,]+\.\d{2}[+-]$")
+_MAYBANK_BALANCE_RE = re.compile(r"^[\d,]+\.\d{2}$")
+_MAYBANK_END_MARKERS = (
+    "ENDING BALANCE :",
+    "TARIKH PENYATA",
+    "TERMS AND CONDITION",
+    "Malayan Banking Berhad",
+)
+
+
+def _extract_maybank_balances(text: str) -> dict | None:
+    """Pull BEGINNING BALANCE (always present) and ENDING BALANCE :
+    (2018-era only) from a Maybank savings statement.
+
+    BEGINNING BALANCE layout:
+        BEGINNING BALANCE
+        <amount>
+
+    ENDING BALANCE layout (2018 only):
+        ENDING BALANCE :
+        <amount>
+
+    Returns dict with keys "beginning" (float) and "ending" (float | None).
+    Returns None if BEGINNING BALANCE not found (caller treats as parse failure).
+    """
+    beg_match = re.search(
+        r"BEGINNING BALANCE\s*\n\s*([\d,]+\.\d{2})", text
+    )
+    if not beg_match:
+        return None
+    beginning = float(beg_match.group(1).replace(",", ""))
+
+    end_match = re.search(
+        r"ENDING BALANCE\s*:\s*\n\s*([\d,]+\.\d{2})", text
+    )
+    ending: float | None = None
+    if end_match:
+        ending = float(end_match.group(1).replace(",", ""))
+
+    return {"beginning": beginning, "ending": ending}
+
+
+def _extract_rows_from_maybank(text: str) -> list[dict]:
+    """Mirror MaybankParser.parse, emit {signed_amount, balance} rows for the
+    reconciler.
+
+    Sign convention matches the source's literal sign suffix:
+        +amount = credit (incoming money, increases balance)
+        -amount = debit  (outgoing money, decreases balance)
+    """
+    lines = text.splitlines()
+
+    start_idx = None
+    for i, ln in enumerate(lines):
+        if ln.strip() == "BEGINNING BALANCE":
+            start_idx = i + 2
+            break
+    if start_idx is None:
+        return []
+
+    end_idx = len(lines)
+    for i in range(start_idx, len(lines)):
+        stripped = lines[i].strip()
+        if any(stripped.startswith(m) for m in _MAYBANK_END_MARKERS):
+            end_idx = i
+            break
+
+    section = lines[start_idx:end_idx]
+
+    anchors: list[int] = []
+    for i, ln in enumerate(section):
+        if _MAYBANK_DATE_LINE_RE.match(ln.strip()):
+            anchors.append(i)
+
+    rows: list[dict] = []
+    for k, start in enumerate(anchors):
+        end = anchors[k + 1] if k + 1 < len(anchors) else len(section)
+        chunk = section[start:end]
+        if len(chunk) < 4:
+            continue
+        # Walk forward to first signed-amount line.
+        signed_idx = None
+        for j in range(2, len(chunk)):
+            if _MAYBANK_SIGNED_AMOUNT_RE.match(chunk[j].strip()):
+                signed_idx = j
+                break
+        if signed_idx is None:
+            continue
+        signed_line = chunk[signed_idx].strip()
+        sign = signed_line[-1]
+        amount = float(signed_line[:-1].replace(",", ""))
+        signed = amount if sign == "+" else -amount
+        # Balance is the next line.
+        if signed_idx + 1 >= len(chunk):
+            continue
+        balance_line = chunk[signed_idx + 1].strip()
+        if not _MAYBANK_BALANCE_RE.match(balance_line):
+            continue
+        balance = float(balance_line.replace(",", ""))
+        rows.append({"signed_amount": signed, "balance": balance})
+    return rows
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -285,6 +391,7 @@ def reconcile_statement(stmt_id: int, db: Session) -> ReconcileResult:
 
     text = "".join(p.get_text() for p in doc)
     aeon_headers: dict | None = None
+    maybank_balances: dict | None = None
     if _NEW_FORMAT_MARKER in text:
         rows = _extract_rows_from_tng_new(doc)
     elif _LEGACY_FORMAT_MARKER in text:
@@ -292,6 +399,9 @@ def reconcile_statement(stmt_id: int, db: Session) -> ReconcileResult:
     elif _AEON_MARKER in text and "Total Charges of the Month" in text:
         rows = _extract_rows_from_aeon_credit(text)
         aeon_headers = _extract_aeon_credit_header_balances(text)
+    elif _MAYBANK_MARKER in text and _MAYBANK_MARKER_2 in text:
+        rows = _extract_rows_from_maybank(text)
+        maybank_balances = _extract_maybank_balances(text)
     else:
         doc.close()
         return ReconcileResult(ok=True, note="unknown bank format")
@@ -323,6 +433,50 @@ def reconcile_statement(stmt_id: int, db: Session) -> ReconcileResult:
             )
         # Per-row check is intentionally skipped — credit card statements
         # don't carry running balances per transaction.
+        return ReconcileResult(ok=True, checks_run=checks_run)
+
+    # Maybank savings: per-row balance present + explicit BEGINNING BALANCE
+    # always + ENDING BALANCE :  in 2018-era statements only. Run the existing
+    # _check_statement_balance and _check_per_row, then cross-check against
+    # the explicit BEGINNING / ENDING values from the header/footer.
+    if maybank_balances is not None and rows:
+        checks_run.append("statement")
+        r = _check_statement_balance(rows)
+        if not r.ok:
+            return ReconcileResult(ok=False, note=r.note, checks_run=checks_run)
+
+        # Cross-check beginning balance: rows[0].balance - rows[0].signed_amount
+        # should equal the explicit BEGINNING BALANCE from the statement header.
+        derived_beginning = rows[0]["balance"] - rows[0]["signed_amount"]
+        if abs(derived_beginning - maybank_balances["beginning"]) > 0.01:
+            return ReconcileResult(
+                ok=False,
+                note=(
+                    f"beginning balance mismatch: stated={maybank_balances['beginning']:.2f}, "
+                    f"derived={derived_beginning:.2f}"
+                ),
+                checks_run=checks_run,
+            )
+
+        # Cross-check ending balance against rows[-1].balance — only for 2018-era
+        # statements that include the explicit ENDING BALANCE : footer line.
+        if maybank_balances["ending"] is not None:
+            final_balance = rows[-1]["balance"]
+            if abs(final_balance - maybank_balances["ending"]) > 0.01:
+                return ReconcileResult(
+                    ok=False,
+                    note=(
+                        f"ending balance mismatch: stated={maybank_balances['ending']:.2f}, "
+                        f"final_running={final_balance:.2f}"
+                    ),
+                    checks_run=checks_run,
+                )
+
+        checks_run.append("per_row")
+        r = _check_per_row(rows)
+        if not r.ok:
+            return ReconcileResult(ok=False, note=r.note, checks_run=checks_run)
+
         return ReconcileResult(ok=True, checks_run=checks_run)
 
     has_balance = any(row.get("balance") is not None for row in rows)
