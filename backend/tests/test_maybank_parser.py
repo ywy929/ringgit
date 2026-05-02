@@ -2,7 +2,7 @@ from pathlib import Path
 
 from app.services.parsers.maybank import MaybankParser
 
-SAMPLE_TEXT = (Path(__file__).parent.parent / "sample_data" / "maybank_sample.txt").read_text()
+SAMPLE_TEXT = (Path(__file__).parent.parent / "sample_data" / "maybank_sample.txt").read_text(encoding="utf-8")
 
 
 def test_can_parse_detects_maybank():
