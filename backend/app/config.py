@@ -27,4 +27,5 @@ def _pw(env_var: str) -> str | None:
 SENDER_PASSWORDS: dict[str, str | None] = {
     "ewallet@tngdigital.com.my": _pw("PDF_PASSWORD_TNG"),
     "estatement@aeonrewards.com.my": _pw("PDF_PASSWORD_AEON"),
+    "m2u@stmts.maybank2u.com.my": _pw("PDF_PASSWORD_MAYBANK"),
 }
