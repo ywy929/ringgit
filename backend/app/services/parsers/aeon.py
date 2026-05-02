@@ -94,9 +94,13 @@ class AEONParser(BaseParser):
             return None
         date_str = dt.strftime("%Y-%m-%d")
 
-        # Find the amount: the LAST line in the chunk matching the amount pattern.
+        # Find the amount: the FIRST line after the date pair matching the
+        # amount pattern. Walking BACKWARD picks up footer numbers in the
+        # final transaction's chunk (which extends to end-of-text past the
+        # transactions section). Forward walk finds the real transaction
+        # amount, which immediately follows the description and optional CR.
         amount_idx = None
-        for i in range(len(chunk) - 1, 1, -1):
+        for i in range(2, len(chunk)):
             if _AMOUNT_LINE_RE.match(chunk[i]):
                 amount_idx = i
                 break

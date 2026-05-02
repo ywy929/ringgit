@@ -241,8 +241,11 @@ def _extract_rows_from_aeon_credit(text: str) -> list[dict]:
         chunk = lines[start:end]
         if len(chunk) < 4:
             continue
+        # Forward walk for the same reason AEONParser does it: the last-anchor
+        # chunk extends to end-of-text past the transactions section, and a
+        # backward walk would pick up footer numbers as the amount.
         amount_idx = None
-        for j in range(len(chunk) - 1, 1, -1):
+        for j in range(2, len(chunk)):
             if _AEON_AMOUNT_LINE_RE.match(chunk[j]):
                 amount_idx = j
                 break
