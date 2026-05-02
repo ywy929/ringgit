@@ -271,11 +271,12 @@ def _extract_rows_from_aeon_credit(text: str) -> list[dict]:
 _MAYBANK_DATE_LINE_RE = re.compile(r"^\d{2}/\d{2}/\d{2}$")
 _MAYBANK_SIGNED_AMOUNT_RE = re.compile(r"^[\d,]+\.\d{2}[+-]$")
 _MAYBANK_BALANCE_RE = re.compile(r"^[\d,]+\.\d{2}$")
+# Note: "Malayan Banking Berhad" and "TARIKH PENYATA" are intentionally
+# excluded — they appear in the page footer between pages of multi-page
+# statements, so using them as end markers would stop extraction early.
 _MAYBANK_END_MARKERS = (
     "ENDING BALANCE :",
-    "TARIKH PENYATA",
     "TERMS AND CONDITION",
-    "Malayan Banking Berhad",
 )
 
 

@@ -48,11 +48,13 @@ _STATEMENT_DATE_RE = re.compile(
 )
 
 # Transaction-section terminators (any of these ends the transaction stream).
+# Note: "Malayan Banking Berhad" and "TARIKH PENYATA" are intentionally
+# excluded — they appear in the page footer between pages of multi-page
+# statements, so using them as end markers would stop parsing early and miss
+# transactions on subsequent pages.
 _END_MARKERS = (
     "ENDING BALANCE :",
-    "TARIKH PENYATA",          # statement-date block (appears after txs in the layout)
     "TERMS AND CONDITION",
-    "Malayan Banking Berhad",
 )
 
 
@@ -157,9 +159,12 @@ class MaybankParser(BaseParser):
         if not _BALANCE_RE.match(balance_line):
             return None
 
-        # Detail lines: everything after the balance line, leading whitespace
-        # stripped, empty lines dropped.
-        detail_lines = [ln.strip() for ln in chunk[signed_idx + 2:] if ln.strip()]
+        # Detail lines: indented lines after the balance line (leading whitespace
+        # stripped, empty lines dropped).  We intentionally restrict to lines
+        # that start with whitespace so that page-footer/header lines that lack
+        # indentation (e.g., "TARIKH PENYATA", column-header rows on page 2)
+        # are not pulled into the transaction description.
+        detail_lines = [ln.strip() for ln in chunk[signed_idx + 2:] if ln and ln[0] == " "]
 
         if detail_lines:
             description = f"{type_label} - {' '.join(detail_lines)}"

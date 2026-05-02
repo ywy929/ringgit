@@ -557,3 +557,58 @@ def test_reconcile_maybank_ending_balance_mismatch_flags(db, tmp_path, monkeypat
     result = reconcile_statement(stmt.id, db)
     assert result.ok is False
     assert "ending" in (result.note or "").lower()
+
+
+@pytest.mark.skipif(
+    not _MAYBANK_FIXTURE_PATH.exists(),
+    reason=f"real fixture {_MAYBANK_FIXTURE_NAME} not present",
+)
+def test_reconcile_real_maybank_savings_passes(db, monkeypatch, tmp_path):
+    import fitz
+    from app.config import SENDER_PASSWORDS
+    from app.services.parsers.maybank import MaybankParser
+
+    password = SENDER_PASSWORDS.get("m2u@stmts.maybank2u.com.my")
+    if not password:
+        pytest.skip("PDF_PASSWORD_MAYBANK not configured")
+
+    staged = tmp_path / _MAYBANK_FIXTURE_NAME
+    shutil.copy(_MAYBANK_FIXTURE_PATH, staged)
+    monkeypatch.setattr("app.services.reconciler.BACKEND_ROOT", tmp_path)
+    # SENDER_PASSWORDS is already populated correctly from the env at import
+    # time; no monkeypatching needed.
+
+    acc = Account(name="Maybank Savings", bank="maybank", type="bank")
+    db.add(acc); db.commit()
+
+    doc = fitz.open(str(staged))
+    if doc.is_encrypted:
+        doc.authenticate(password)
+    text = "".join(p.get_text() for p in doc)
+    doc.close()
+    parser = MaybankParser()
+    parsed = parser.parse(text)
+    assert len(parsed) > 0, "parser produced 0 transactions on real Maybank fixture"
+
+    stmt = Statement(
+        file_hash="maybank-real-test-hash",
+        bank="maybank",
+        source="email",
+        filename=_MAYBANK_FIXTURE_NAME,
+        period_month=parser.extract_period_month(text) or "",
+        file_path=_MAYBANK_FIXTURE_NAME,
+    )
+    db.add(stmt); db.flush()
+    for p in parsed:
+        db.add(Transaction(
+            statement_id=stmt.id, account_id=acc.id,
+            date=p["date"], description=p["description"],
+            amount=p["amount"], type=p["type"],
+        ))
+    db.commit()
+
+    result = reconcile_statement(stmt.id, db)
+    assert result.ok, f"real Maybank reconciliation failed: {result.note} (checks_run={result.checks_run})"
+    assert "count" in result.checks_run
+    assert "statement" in result.checks_run
+    assert "per_row" in result.checks_run
