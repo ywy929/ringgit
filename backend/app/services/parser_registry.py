@@ -12,8 +12,8 @@ from app.services.parsers.aeon import AEONParser
 class ParserRegistry:
     def __init__(self):
         self.parsers: list[BaseParser] = [
-            MaybankParser(), CIMBParser(), PublicBankParser(),
-            HongLeongParser(), TnGParser(), AEONParser(),
+            MaybankParser(), CIMBParser(), AEONParser(), PublicBankParser(),
+            HongLeongParser(), TnGParser(),
         ]
 
     def detect_bank(self, text: str) -> BaseParser | None:
