@@ -52,7 +52,10 @@ class GmailFetcher:
         parts = message.get("payload", {}).get("parts", [])
 
         for part in parts:
-            if part.get("mimeType") == "application/pdf" and part.get("filename"):
+            # Accept by filename suffix rather than mime type alone — many
+            # banks (Maybank, etc.) send PDFs as application/octet-stream.
+            filename = part.get("filename", "")
+            if filename.lower().endswith(".pdf"):
                 att_id = part["body"].get("attachmentId")
                 if att_id:
                     att = self.service.users().messages().attachments().get(
