@@ -161,3 +161,55 @@ def test_fetch_keeps_old_refresh_token_when_not_rotated(client, db):
 
     db.refresh(acct)
     assert acct.refresh_token == "rt-keep"
+
+
+def test_fetch_does_not_advance_cursor_when_no_attachments(client, db):
+    # Pre-existing cursor should NOT change when 0 attachments are returned.
+    past = _iso(_utc_naive_now() - timedelta(hours=24))
+    acct = EmailAccount(
+        email="empty@gmail.com",
+        access_token="at",
+        refresh_token="rt",
+        token_expires_at=_iso(_utc_naive_now() + timedelta(hours=1)),
+        last_fetched_at=past,
+    )
+    db.add(acct); db.commit()
+
+    with patch("app.routers.email.GmailFetcher") as mock_fetcher_cls:
+        mock_fetcher_cls.return_value.fetch_statements.return_value = []
+        client.post("/api/email-accounts/fetch")
+
+    db.refresh(acct)
+    assert acct.last_fetched_at == past, "cursor should not advance on empty fetch"
+
+
+def test_fetch_advances_cursor_when_attachments_found(client, db, monkeypatch):
+    # Pre-existing cursor SHOULD update when ≥1 attachment is processed.
+    past = _iso(_utc_naive_now() - timedelta(hours=24))
+    acct = EmailAccount(
+        email="busy@gmail.com",
+        access_token="at",
+        refresh_token="rt",
+        token_expires_at=_iso(_utc_naive_now() + timedelta(hours=1)),
+        last_fetched_at=past,
+    )
+    db.add(acct); db.commit()
+
+    # Stub _process_fetched_pdf to avoid PDF-extraction side effects.
+    from app.schemas import UploadResult
+    monkeypatch.setattr(
+        "app.routers.email._process_fetched_pdf",
+        lambda *a, **kw: UploadResult(
+            filename="x.pdf", bank="unknown",
+            transactions_imported=0, duplicates_skipped=0, status="failed",
+        ),
+    )
+
+    with patch("app.routers.email.GmailFetcher") as mock_fetcher_cls:
+        mock_fetcher_cls.return_value.fetch_statements.return_value = [
+            {"filename": "x.pdf", "content": b"%PDF-1.4 dummy", "sender": "x@y.com"},
+        ]
+        client.post("/api/email-accounts/fetch")
+
+    db.refresh(acct)
+    assert acct.last_fetched_at != past, "cursor should advance when attachments processed"

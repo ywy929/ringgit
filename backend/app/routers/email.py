@@ -365,7 +365,8 @@ def fetch_all_accounts(db: Session = Depends(get_db)):
             )
             processed.append(result)
 
-        acct.last_fetched_at = _utcnow_naive().isoformat()
+        if attachments:
+            acct.last_fetched_at = _utcnow_naive().isoformat()
         db.commit()
 
         results.append(FetchResult(
