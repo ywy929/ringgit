@@ -64,9 +64,15 @@ def main() -> int:
     )
     print(f"reprocessing {len(stmts)} Maybank candidate statements")
 
-    existing_keys: set[tuple] = set()
+    # No in-script dedup. Two reasons: (1) the script does DELETE + INSERT
+    # so re-runs can't accumulate duplicates; (2) Maybank savings statements
+    # are non-overlapping monthly periods, so a transaction can never appear
+    # in two different statements. A broad-key dedup would silently drop
+    # legitimate same-day same-amount same-merchant repeats within a single
+    # statement (e.g., two toll-gate events on the same day, identical-amount
+    # parking charges, etc.) — the bank's statement is the source of truth
+    # and we trust its row count.
     inserted = 0
-    skipped = 0
     extraction_failures = 0
     detection_failures = 0
 
@@ -107,11 +113,6 @@ def main() -> int:
             stmt.bank = "maybank"
 
         for p in parsed:
-            # No external_reference for Maybank; broad-key dedup only.
-            key = (p["date"], p["amount"], p["type"], p["description"])
-            if key in existing_keys:
-                skipped += 1; continue
-            existing_keys.add(key)
             cat_id = categorizer.categorize(p["description"])
             if cat_id is None and uncat:
                 cat_id = uncat.id
@@ -124,7 +125,6 @@ def main() -> int:
         db.commit()
 
     print(f"inserted: {inserted}")
-    print(f"skipped (dedup): {skipped}")
     print(f"extraction failures: {extraction_failures}")
     print(f"detection failures: {detection_failures}")
 

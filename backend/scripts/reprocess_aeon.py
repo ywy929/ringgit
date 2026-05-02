@@ -50,9 +50,14 @@ def main() -> int:
     )
     print(f"reprocessing {len(stmts)} AEON BC statements")
 
-    existing_keys: set[tuple] = set()
+    # No in-script dedup. The script does DELETE + INSERT so re-runs can't
+    # accumulate duplicates, and AEON billing-cycle statements are
+    # non-overlapping so cross-statement collisions are impossible. Today
+    # AEON's data shape doesn't have problematic same-day repeats anyway,
+    # but removing the dedup is consistent with reprocess_maybank.py and
+    # defensive against future data shape changes (e.g., a new card type
+    # with toll-style same-day micro-charges).
     inserted = 0
-    skipped = 0
     extraction_failures = 0
     detection_failures = 0
 
@@ -91,11 +96,6 @@ def main() -> int:
             stmt.bank = "aeon"
 
         for p in parsed:
-            # No external_reference for AEON; broad-key dedup only.
-            key = (p["date"], p["amount"], p["type"], p["description"])
-            if key in existing_keys:
-                skipped += 1; continue
-            existing_keys.add(key)
             cat_id = categorizer.categorize(p["description"])
             if cat_id is None and uncat:
                 cat_id = uncat.id
@@ -108,7 +108,6 @@ def main() -> int:
         db.commit()
 
     print(f"inserted: {inserted}")
-    print(f"skipped (dedup): {skipped}")
     print(f"extraction failures: {extraction_failures}")
     print(f"detection failures: {detection_failures}")
 
