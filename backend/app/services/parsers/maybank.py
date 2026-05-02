@@ -163,8 +163,13 @@ class MaybankParser(BaseParser):
         # stripped, empty lines dropped).  We intentionally restrict to lines
         # that start with whitespace so that page-footer/header lines that lack
         # indentation (e.g., "TARIKH PENYATA", column-header rows on page 2)
-        # are not pulled into the transaction description.
-        detail_lines = [ln.strip() for ln in chunk[signed_idx + 2:] if ln and ln[0] == " "]
+        # are not pulled into the transaction description. Accept both spaces
+        # and tabs since PDF text extractors may use either depending on how
+        # the source PDF was generated.
+        detail_lines = [
+            ln.strip() for ln in chunk[signed_idx + 2:]
+            if ln and ln.startswith((" ", "\t"))
+        ]
 
         if detail_lines:
             description = f"{type_label} - {' '.join(detail_lines)}"
