@@ -38,8 +38,11 @@ _DATE_LINE_RE = re.compile(r"^\d{2}/\d{2}/\d{2}$")
 _SIGNED_AMOUNT_RE = re.compile(r"^[\d,]+\.\d{2}[+-]$")
 # A line containing only a balance (no sign suffix).
 _BALANCE_RE = re.compile(r"^[\d,]+\.\d{2}$")
-# Statement Date label (trilingual block); we match the English label and walk
-# forward to the next DD/MM/YY-only line.
+# Statement Date trilingual block has a fixed 3-line shape:
+#   STATEMENT DATE
+#   :
+#   DD/MM/YY
+# The regex matches that shape directly and captures the date.
 _STATEMENT_DATE_RE = re.compile(
     r"STATEMENT DATE\s*\n\s*:\s*\n(\d{2}/\d{2}/\d{2})"
 )
