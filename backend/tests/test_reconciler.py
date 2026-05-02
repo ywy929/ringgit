@@ -107,6 +107,10 @@ _FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "real"
 _FIXTURE_PATH = _FIXTURE_DIR / _FIXTURE_NAME
 _TNG_PASSWORD = "172895255"  # owner-supplied; matches PDF_PASSWORD_TNG in .env
 
+_AEON_FIXTURE_NAME = "aeon_credit.pdf"
+_AEON_FIXTURE_PATH = _FIXTURE_DIR / _AEON_FIXTURE_NAME
+_AEON_PASSWORD = "075491"  # owner-supplied; matches PDF_PASSWORD_AEON in .env
+
 
 def _seed_tng_account(db) -> Account:
     acc = Account(name="TnG", bank="tng", type="ewallet")
@@ -299,3 +303,55 @@ def test_reconcile_aeon_balance_mismatch_flags(db, tmp_path, monkeypatch):
     result = reconcile_statement(stmt.id, db)
     assert result.ok is False
     assert "row count mismatch" in (result.note or "")
+
+
+@pytest.mark.skipif(
+    not _AEON_FIXTURE_PATH.exists(),
+    reason=f"real fixture {_AEON_FIXTURE_NAME} not present",
+)
+def test_reconcile_real_aeon_credit_passes(db, monkeypatch, tmp_path):
+    import fitz
+
+    staged = tmp_path / _AEON_FIXTURE_NAME
+    shutil.copy(_AEON_FIXTURE_PATH, staged)
+    monkeypatch.setattr("app.services.reconciler.BACKEND_ROOT", tmp_path)
+    monkeypatch.setitem(
+        __import__("app.config", fromlist=["SENDER_PASSWORDS"]).SENDER_PASSWORDS,
+        "estatement@aeonrewards.com.my",
+        _AEON_PASSWORD,
+    )
+
+    acc = Account(name="AEON Credit Card", bank="aeon", type="credit_card")
+    db.add(acc); db.commit()
+
+    doc = fitz.open(str(staged))
+    if doc.is_encrypted:
+        doc.authenticate(_AEON_PASSWORD)
+    text = "".join(p.get_text() for p in doc)
+    doc.close()
+    parser = AEONParser()
+    parsed = parser.parse(text)
+    assert len(parsed) > 0, "parser produced 0 transactions on real AEON fixture"
+
+    stmt = Statement(
+        file_hash="aeon-real-test-hash",
+        bank="aeon",
+        source="email",
+        filename=_AEON_FIXTURE_NAME,
+        period_month=parser.extract_period_month(text) or "",
+        file_path=_AEON_FIXTURE_NAME,
+    )
+    db.add(stmt); db.flush()
+    for p in parsed:
+        db.add(Transaction(
+            statement_id=stmt.id, account_id=acc.id,
+            date=p["date"], description=p["description"],
+            amount=p["amount"], type=p["type"],
+        ))
+    db.commit()
+
+    result = reconcile_statement(stmt.id, db)
+    assert result.ok, f"real AEON reconciliation failed: {result.note} (checks_run={result.checks_run})"
+    assert "count" in result.checks_run
+    assert "statement" in result.checks_run
+    assert "per_row" not in result.checks_run
