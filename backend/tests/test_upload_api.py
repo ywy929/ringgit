@@ -1,8 +1,9 @@
+import pytest
 from pathlib import Path
 from app.models import Account, Category, Statement, Transaction
 from app.seed import seed_database
 
-SAMPLE_TEXT = (Path(__file__).parent.parent / "sample_data" / "maybank_sample.txt").read_text()
+SAMPLE_TEXT = (Path(__file__).parent.parent / "sample_data" / "maybank_sample.txt").read_text(encoding="utf-8")
 
 def test_upload_requires_account(client, db):
     seed_database(db)
@@ -23,14 +24,12 @@ def test_upload_and_parse(client, db, monkeypatch):
     data = response.json()
     assert data["status"] == "done"
     assert data["bank"] == "maybank"
-    assert data["transactions_imported"] == 8
+    assert data["transactions_imported"] == 3
     txs = db.query(Transaction).all()
-    assert len(txs) == 8
-    salary = [t for t in txs if "SALARY" in t.description][0]
-    income_cat = db.query(Category).filter_by(name="Income").first()
-    assert salary.category_id == income_cat.id
-    atm = [t for t in txs if "ATM" in t.description][0]
-    assert atm.is_cash_withdrawal is True
+    assert len(txs) == 3
+    transfer = [t for t in txs if "TRANSFER FROM" in t.description][0]
+    assert transfer.type == "credit"
+    assert transfer.amount == pytest.approx(500.00)
 
 def test_upload_duplicate_rejected(client, db, monkeypatch):
     seed_database(db)

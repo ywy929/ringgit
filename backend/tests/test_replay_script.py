@@ -32,7 +32,7 @@ def test_replay_exits_zero_when_parser_finds_transactions(tmp_path):
     # Use the committed maybank text fixture as a PDF.
     pdf = tmp_path / "maybank.pdf"
     sample_txt = Path(__file__).resolve().parents[1] / "sample_data" / "maybank_sample.txt"
-    _make_pdf_with_text(pdf, sample_txt.read_text())
+    _make_pdf_with_text(pdf, sample_txt.read_text(encoding="utf-8"))
 
     result = subprocess.run(
         [sys.executable, str(SCRIPT), str(pdf)],

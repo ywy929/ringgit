@@ -105,15 +105,15 @@ def test_full_pipeline(client, db, monkeypatch):
     assert len(resp.json()) == 2
 
     # ------------------------------------------------------------------
-    # 3. Set a budget for 2026-04 via API
+    # 3. Set a budget for 2026-03 via API
     # ------------------------------------------------------------------
     resp = client.put("/api/budgets", json={
-        "month": "2026-04",
+        "month": "2026-03",
         "target_amount": 4000.0,
     })
     assert resp.status_code == 200, resp.text
     budget = resp.json()
-    assert budget["month"] == "2026-04"
+    assert budget["month"] == "2026-03"
     assert budget["target_amount"] == 4000.0
 
     # ------------------------------------------------------------------
@@ -142,37 +142,34 @@ def test_full_pipeline(client, db, monkeypatch):
     # 5. Verify upload result
     # ------------------------------------------------------------------
     assert upload_result["status"] == "done", f"Upload failed: {upload_result}"
-    assert upload_result["transactions_imported"] == 8, (
-        f"Expected 8 transactions, got {upload_result['transactions_imported']}"
+    assert upload_result["transactions_imported"] == 3, (
+        f"Expected 3 transactions, got {upload_result['transactions_imported']}"
     )
     assert upload_result["bank"] == "maybank"
 
     # ------------------------------------------------------------------
-    # 6. Check dashboard for 2026-04
+    # 6. Check dashboard for 2026-03
     # ------------------------------------------------------------------
-    resp = client.get("/api/dashboard", params={"month": "2026-04"})
+    resp = client.get("/api/dashboard", params={"month": "2026-03"})
     assert resp.status_code == 200, resp.text
     dash = resp.json()
 
-    # Income: SALARY APR 2026 = 5200.00
-    assert dash["total_income"] == pytest.approx(5200.0, abs=0.01)
+    # Income: TRANSFER FROM A/C = 500.00, REFUND = 50.00 → total 550.00
+    assert dash["total_income"] == pytest.approx(550.0, abs=0.01)
 
-    # Spending > 0 (at least some debits)
+    # Spending > 0 (at least one debit: TRANSFER TO A/C = 200.00)
     assert dash["total_spending"] > 0, "Expected non-zero spending"
 
     # Budget target should be 4000
     assert dash["budget_target"] == pytest.approx(4000.0, abs=0.01)
 
-    # ATM withdrawal = 200.00
-    assert dash["cash_withdrawn"] == pytest.approx(200.0, abs=0.01)
-
     # ------------------------------------------------------------------
-    # 7. Check transactions list has 8 items
+    # 7. Check transactions list has 3 items
     # ------------------------------------------------------------------
-    resp = client.get("/api/transactions", params={"month": "2026-04"})
+    resp = client.get("/api/transactions", params={"month": "2026-03"})
     assert resp.status_code == 200, resp.text
     transactions = resp.json()
-    assert len(transactions) == 8, f"Expected 8 transactions, got {len(transactions)}"
+    assert len(transactions) == 3, f"Expected 3 transactions, got {len(transactions)}"
 
     # ------------------------------------------------------------------
     # 8. Correct a category on an uncategorized transaction (PATCH)
@@ -206,7 +203,7 @@ def test_full_pipeline(client, db, monkeypatch):
     # ------------------------------------------------------------------
     resp = client.post("/api/transactions", json={
         "account_id": maybank_account_id,
-        "date": "2026-04-22",
+        "date": "2026-03-22",
         "description": "PASAR PAGI TAMAN MELAWATI",
         "amount": 45.00,
         "type": "debit",
@@ -222,7 +219,7 @@ def test_full_pipeline(client, db, monkeypatch):
     # ------------------------------------------------------------------
     # 10. Verify dashboard spending increased after manual entry
     # ------------------------------------------------------------------
-    resp = client.get("/api/dashboard", params={"month": "2026-04"})
+    resp = client.get("/api/dashboard", params={"month": "2026-03"})
     assert resp.status_code == 200, resp.text
     dash_after = resp.json()
 

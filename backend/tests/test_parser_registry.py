@@ -3,7 +3,7 @@ from pathlib import Path
 
 from app.services.parser_registry import ParserRegistry
 
-SAMPLE_TEXT = (Path(__file__).parent.parent / "sample_data" / "maybank_sample.txt").read_text()
+SAMPLE_TEXT = (Path(__file__).parent.parent / "sample_data" / "maybank_sample.txt").read_text(encoding="utf-8")
 
 
 def test_detect_bank_maybank():
