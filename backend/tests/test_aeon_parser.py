@@ -2,7 +2,7 @@ from pathlib import Path
 
 from app.services.parsers.aeon import AEONParser
 
-SAMPLE_TEXT = (Path(__file__).parent / "fixtures" / "aeon_sample.txt").read_text()
+SAMPLE_TEXT = (Path(__file__).parent.parent / "sample_data" / "aeon_sample.txt").read_text()
 
 
 def test_can_parse_detects_aeon_credit_card():
