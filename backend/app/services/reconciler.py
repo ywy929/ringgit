@@ -91,6 +91,7 @@ _HEADER_CELL_VALUES = {
 # Format markers — used to dispatch column maps.
 _NEW_FORMAT_MARKER = "TNG WALLET TRANSACTION HISTORY"
 _LEGACY_FORMAT_MARKER = "Customer Transactions Statement"
+_AEON_MARKER = "AEON CREDIT SERVICE"
 
 _RM_AMOUNT_RE = re.compile(r"^RM(\d+(?:,\d{3})*\.\d{2})$")
 _PLAIN_AMOUNT_RE = re.compile(r"^(\d+(?:,\d{3})*\.\d{2})$")
@@ -180,6 +181,80 @@ def _extract_rows_from_tng_legacy(doc: fitz.Document) -> list[dict]:
     return rows
 
 
+def _extract_aeon_credit_header_balances(text: str) -> dict | None:
+    """Pull Previous Statement Balance and Total Current Balance from the
+    bilingual header block. Layout is:
+
+        Credit Card Number / Nombor Kad Kredit
+        Previous Statement Balance / Baki Penyata Sebelum
+        Total Charges of the Month / Jumlah Caj Bulanan
+        Total Current Balance / Jumlah Baki Semasa
+        Minimum Payment / Bayaran Minimum
+        <16-digit card number>
+        RM <previous>
+        RM <charges>
+        RM <current>
+        RM <minimum>
+
+    The 4 RM amounts appear immediately after the card number, in the order
+    of the labels above. We anchor on the card-number-then-4-RM-amounts run.
+    Returns None if the pattern doesn't match (caller treats as skip).
+    """
+    m = re.search(
+        r"^\d{16}\s*\n"
+        r"\s*RM\s*([\d,]+\.\d{2})\s*\n"   # Previous
+        r"\s*RM\s*[\d,]+\.\d{2}\s*\n"      # Charges (skipped)
+        r"\s*RM\s*([\d,]+\.\d{2})\s*\n"   # Current
+        r"\s*RM\s*[\d,]+\.\d{2}",          # Minimum (skipped)
+        text,
+        re.MULTILINE,
+    )
+    if not m:
+        return None
+    return {
+        "previous": float(m.group(1).replace(",", "")),
+        "current": float(m.group(2).replace(",", "")),
+    }
+
+
+_AEON_DATE_LINE_RE = re.compile(r"^(\d{2})\s+(\w{3})\s+(\d{4})$")
+_AEON_AMOUNT_LINE_RE = re.compile(r"^\d{1,3}(?:,\d{3})*\.\d{2}$")
+
+
+def _extract_rows_from_aeon_credit(text: str) -> list[dict]:
+    """Same anchor-based walk as AEONParser.parse, but emits {signed_amount,
+    balance: None} dicts that the reconciler's check functions consume.
+
+    Sign convention for credit-card statements:
+        +amount = debit (purchase / fee — increases balance owed)
+        -amount = credit (CR — payment / refund — decreases balance owed)
+    """
+    lines = [ln.strip() for ln in text.splitlines()]
+    anchors: list[int] = []
+    for i in range(len(lines) - 1):
+        if _AEON_DATE_LINE_RE.match(lines[i]) and _AEON_DATE_LINE_RE.match(lines[i + 1]):
+            anchors.append(i)
+
+    rows: list[dict] = []
+    for k, start in enumerate(anchors):
+        end = anchors[k + 1] if k + 1 < len(anchors) else len(lines)
+        chunk = lines[start:end]
+        if len(chunk) < 4:
+            continue
+        amount_idx = None
+        for j in range(len(chunk) - 1, 1, -1):
+            if _AEON_AMOUNT_LINE_RE.match(chunk[j]):
+                amount_idx = j
+                break
+        if amount_idx is None:
+            continue
+        amount = float(chunk[amount_idx].replace(",", ""))
+        is_credit = any(ln == "CR" for ln in chunk[2:amount_idx])
+        signed = -amount if is_credit else amount
+        rows.append({"signed_amount": signed, "balance": None})
+    return rows
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -206,10 +281,14 @@ def reconcile_statement(stmt_id: int, db: Session) -> ReconcileResult:
             return ReconcileResult(ok=True, note="encrypted: no configured password")
 
     text = "".join(p.get_text() for p in doc)
+    aeon_headers: dict | None = None
     if _NEW_FORMAT_MARKER in text:
         rows = _extract_rows_from_tng_new(doc)
     elif _LEGACY_FORMAT_MARKER in text:
         rows = _extract_rows_from_tng_legacy(doc)
+    elif _AEON_MARKER in text and "Total Charges of the Month" in text:
+        rows = _extract_rows_from_aeon_credit(text)
+        aeon_headers = _extract_aeon_credit_header_balances(text)
     else:
         doc.close()
         return ReconcileResult(ok=True, note="unknown bank format")
@@ -221,6 +300,27 @@ def reconcile_statement(stmt_id: int, db: Session) -> ReconcileResult:
     r = _check_count(db_count, len(rows))
     if not r.ok:
         return ReconcileResult(ok=False, note=r.note, checks_run=checks_run)
+
+    # AEON credit cards have no per-row running balance, so the existing
+    # _check_statement_balance can't be used (it requires balance data).
+    # Run the inline check using header Previous/Current values.
+    if aeon_headers is not None:
+        checks_run.append("statement")
+        sum_signed = sum(row["signed_amount"] for row in rows)
+        expected = aeon_headers["previous"] + sum_signed
+        if abs(expected - aeon_headers["current"]) > 0.01:
+            return ReconcileResult(
+                ok=False,
+                note=(
+                    f"closing balance mismatch: previous={aeon_headers['previous']:.2f}, "
+                    f"sum={sum_signed:.2f}, expected={aeon_headers['current']:.2f}, "
+                    f"computed={expected:.2f}"
+                ),
+                checks_run=checks_run,
+            )
+        # Per-row check is intentionally skipped — credit card statements
+        # don't carry running balances per transaction.
+        return ReconcileResult(ok=True, checks_run=checks_run)
 
     has_balance = any(row.get("balance") is not None for row in rows)
     if has_balance:
