@@ -1,0 +1,64 @@
+﻿CREDIT CARD STATEMENT / TAX INVOICE
+PENYATA KAD KREDIT / INVOIS CUKAI
+Page 1 / 3
+AEON CREDIT SERVICE (M) BHD 199601040414 (412767-V)
+Level 18, UOA Corporate Tower
+MR TEST USER
+1, JALAN TEST
+50000 KUALA LUMPUR
+Card Number /
+Nombor Kad
+1234567890123456
+Card type /
+Jenis Kad
+AMP VISA CLASSIC
+Combined Credit Limit (RM) /
+Had Kredit Gabungan (RM)
+3,000.00
+Statement Date /
+Tarikh Penyata
+25 Apr 2026
+Payment Due Date /
+Tarikh Bayar Matang
+15 May 2026
+Credit Card Number
+Nombor Kad Kredit
+Previous Statement Balance
+Baki Penyata Sebelum
+Total Charges of the Month
+Jumlah Caj Bulanan
+Total Current Balance
+Jumlah Baki Semasa
+Minimum Payment
+Bayaran Minimum
+1234567890123456
+RM 1,000.00
+RM 220.00
+RM 720.00
+RM 50.00
+Posting Date /
+Tarikh Bil Diterima
+Transaction Date /
+Tarikh Transaksi
+Transaction Details /
+Deskripsi Transaksi
+Amount (RM) /
+Amaun (RM)
+YOUR PREVIOUS STATEMENT BALANCE
+1,000.00
+1234567890123456 MR TEST USER
+02 Apr 2026
+01 Apr 2026
+PAYMENT - THANK YOU
+CR
+500.00
+05 Apr 2026
+04 Apr 2026
+SOME COFFEE SHOP KUALA LUMPUR
+20.00
+10 Apr 2026
+09 Apr 2026
+LONG MERCHANT NAME WITH MULTI
+LINE DESCRIPTION TEST
+200.00
+
