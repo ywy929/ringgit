@@ -1,11 +1,19 @@
 """Statement reconciliation — runtime guardrail against silent parser drift.
 
-We use PyMuPDF's `Page.find_tables()` as an independent side-channel against
-whatever the per-bank regex parser produced. Three checks, each short-circuits:
+For each statement we re-extract transaction rows independently of whatever
+the per-bank regex parser produced, then cross-check counts and arithmetic.
+The extraction strategy is bank-specific: TnG uses PyMuPDF's
+`Page.find_tables()`; AEON and Maybank use anchor-based text parsing.
+
+Checks (each short-circuits):
 
 1. Count cross-check (universal): row counts agree.
-2. Statement-level balance (when balance column present): opening + sum == closing.
+2. Statement-level balance (when balance data is present): opening + sum == closing.
 3. Per-row monotonic (when both adjacent rows have balances): prev + signed == curr.
+
+Some banks add inline cross-checks: AEON validates against header Previous /
+Current balance values; Maybank validates against explicit BEGINNING and
+ENDING balance markers when present.
 
 Failures soft-flag the Statement (caller sets needs_review); inserts are not
 rolled back. Skips (encrypted PDFs we cannot open, file missing, unknown bank
@@ -369,7 +377,9 @@ def _extract_rows_from_maybank(text: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def reconcile_statement(stmt_id: int, db: Session) -> ReconcileResult:
-    """Open the PDF for stmt_id, extract rows via find_tables, run the three checks."""
+    """Open the PDF for stmt_id, extract rows via the bank-specific strategy
+    (find_tables for TnG, anchor-based text parsing for AEON/Maybank), run the
+    three checks plus any bank-specific cross-checks."""
     stmt = db.query(Statement).filter_by(id=stmt_id).first()
     if not stmt or not stmt.file_path:
         return ReconcileResult(ok=True, note="no file_path")
@@ -436,7 +446,7 @@ def reconcile_statement(stmt_id: int, db: Session) -> ReconcileResult:
         return ReconcileResult(ok=True, checks_run=checks_run)
 
     # Maybank savings: per-row balance present + explicit BEGINNING BALANCE
-    # always + ENDING BALANCE :  in 2018-era statements only. Run the existing
+    # always + ENDING BALANCE : in 2018-era statements only. Run the existing
     # _check_statement_balance and _check_per_row, then cross-check against
     # the explicit BEGINNING / ENDING values from the header/footer.
     if maybank_balances is not None and rows:
