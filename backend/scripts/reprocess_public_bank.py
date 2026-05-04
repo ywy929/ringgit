@@ -103,6 +103,9 @@ def main() -> int:
         period = parser.extract_period_month(text)
         if period and not stmt.period_month:
             stmt.period_month = period
+        # Commit the metadata correction now so it isn't lost if parser.parse
+        # raises an unexpected exception below.
+        db.commit()
 
         parsed = parser.parse(text)
 
@@ -149,6 +152,7 @@ def main() -> int:
     print(f"  extraction failures: {extraction_failures}")
     print(f"  detection failures: {detection_failures}")
     print(f"  reconcile failures: {reconcile_failures}")
+    db.close()
     return 0
 
 
