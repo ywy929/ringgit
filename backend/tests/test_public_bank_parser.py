@@ -247,3 +247,53 @@ Closing Balance In This Statement
     assert len(txs) == 1
     # And a warning was logged.
     assert any("out of bounds" in r.message.lower() for r in caplog.records)
+
+
+ZERO_VALUE_GST_SAMPLE = """\
+PENYATA AKAUN / STATEMENT OF ACCOUNT
+Tarikh Penyata / Statement Date
+03 Apr 2025
+Jenis Akaun / Account Type RM Moneyplus Savings Account
+Public Bank's Privacy Notice
+TARIKH
+URUS NIAGA
+DEBIT
+KREDIT
+BAKI
+DATE
+TRANSACTION
+DEBIT
+CREDIT
+BALANCE
+992.00
+8.00
+2
+0.00
+0
+03/03
+Balance From Last Statement
+1,000.00
+04/03
+8.00
+992.00
+HANDLING CHRG BANKCARD FEE MFEE
+0.00
+992.00
+GST DR BAFB SRS 212 816 HANDLING CHRG
+Closing Balance In This Statement
+992.00
+"""
+
+
+def test_parse_zero_value_gst_classified_as_debit():
+    # Apr 2025 real-world case: a GST DR ... 0.00 row accompanies a fee.
+    # Balance delta is 0 (ambiguous from arithmetic); the bank's summary
+    # block counts the row as a debit. Parser must agree.
+    txs = PublicBankParser().parse(ZERO_VALUE_GST_SAMPLE)
+    assert len(txs) == 2
+    fee, gst = txs
+    assert fee["type"] == "debit"
+    assert fee["amount"] == 8.00
+    assert gst["type"] == "debit"
+    assert gst["amount"] == 0.00
+    assert "GST" in gst["description"]

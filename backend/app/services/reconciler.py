@@ -653,8 +653,11 @@ def reconcile_statement(stmt_id: int, db: Session) -> ReconcileResult:
             )
 
         # Count cross-check (genuinely novel for this bank — catches the
-        # toll-gate dedup bug shape from ADR-003).
-        db_debits = sum(1 for r in rows if r["signed_amount"] < 0)
+        # toll-gate dedup bug shape from ADR-003). Zero-value rows (e.g.,
+        # GST DR ... 0.00) are counted as debits to match the bank's own
+        # summary, which lists them in the DEBIT column. See the parser's
+        # zero-value handling for the rationale.
+        db_debits = sum(1 for r in rows if r["signed_amount"] <= 0)
         db_credits = sum(1 for r in rows if r["signed_amount"] > 0)
         if db_debits != pb_summary["count_debits"]:
             return ReconcileResult(

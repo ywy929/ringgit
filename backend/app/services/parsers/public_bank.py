@@ -144,12 +144,24 @@ class PublicBankParser(BaseParser):
                 amount_val = float(line.replace(",", ""))
                 curr_balance = float(next_line.replace(",", ""))
                 signed = curr_balance - prev_balance
-                if signed >= 0:
+                if signed > 0:
                     tx_type = "credit"
                     amount = round(signed, 2)
-                else:
+                elif signed < 0:
                     tx_type = "debit"
                     amount = round(-signed, 2)
+                else:
+                    # Zero-value transaction (e.g., GST DR ... 0.00 lines that
+                    # accompany a fee). Balance delta is 0 so sign is ambiguous
+                    # from arithmetic alone. PB's summary block counts these
+                    # in the DEBIT column, and every zero-value entry observed
+                    # in the 13 sampled statements is a `GST DR` row paired
+                    # with a fee. Default to debit to match the bank's own
+                    # categorization. The amount field uses amount_val (the
+                    # parsed line value, which is 0.00) — using -signed would
+                    # be ambiguous.
+                    tx_type = "debit"
+                    amount = round(amount_val, 2)
 
                 # Year inference for current_date (DD/MM): if MM > stmt_month,
                 # transaction is in stmt_year - 1, else stmt_year.
