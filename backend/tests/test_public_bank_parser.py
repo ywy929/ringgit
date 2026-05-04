@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 from app.services.parsers.public_bank import PublicBankParser
@@ -180,9 +181,9 @@ CREDIT
 BALANCE
 1,000.00
 0.00
-1
-2.00
 0
+2.00
+1
 03/12
 Balance From Last Statement
 998.00
@@ -203,9 +204,6 @@ def test_year_inference_wrap():
     assert only["date"] == "2025-12-31"
     assert only["type"] == "credit"
     assert only["amount"] == 2.00
-
-
-import logging
 
 
 def test_out_of_bounds_date_logs_warning(caplog):
