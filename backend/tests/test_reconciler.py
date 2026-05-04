@@ -673,42 +673,60 @@ def test_extract_rows_from_public_bank_no_section():
     assert _extract_rows_from_public_bank(text) == []
 
 
-def test_reconcile_public_bank_happy_path(client, db):
-    """End-to-end reconcile of a synthetic Public Bank statement: upload
-    a single-page PDF, expect ok=True and all 5 PB checks to run."""
+def test_reconcile_public_bank_happy_path(db, tmp_path, monkeypatch):
+    """Synthesize a Public Bank PDF, save with file_path, call
+    reconcile_statement directly, assert ok=True and all PB checks ran.
+
+    Uses the same pattern as test_reconcile_maybank_2026_synthetic_passes.
+    Avoids /api/upload because that route doesn't persist PDFs to disk
+    (only the email-fetch path sets Statement.file_path), so the
+    reconciler would short-circuit with note='no file_path' regardless
+    of whether the dispatch arm is correct.
+    """
     import fitz
-    from pathlib import Path
-    from app.models import Account, Statement
+    from app.services.parsers.public_bank import PublicBankParser
 
-    # Pre-create the public_bank account so /api/upload doesn't return 'failed'.
-    db.add(Account(name="Public Bank Moneyplus", bank="public_bank", type="bank"))
-    db.commit()
+    sample_path = Path(__file__).parent.parent / "sample_data" / "public_bank_sample.txt"
+    sample_text = sample_path.read_text(encoding="utf-8")
 
-    # Synthesize a PDF whose extracted text is the existing sample.
-    sample = (Path(__file__).parent.parent / "sample_data" / "public_bank_sample.txt").read_text(encoding="utf-8")
-    pdf_path = Path("test_pb.pdf").resolve()
+    pdf_path = tmp_path / "public_bank_synth.pdf"
     doc = fitz.open()
     page = doc.new_page()
-    page.insert_textbox(fitz.Rect(40, 40, 555, 800), sample, fontsize=8, fontname="cour")
+    page.insert_textbox(fitz.Rect(40, 40, 555, 800), sample_text, fontsize=8, fontname="cour")
     doc.save(str(pdf_path))
     doc.close()
 
-    try:
-        with open(pdf_path, "rb") as f:
-            resp = client.post("/api/upload", files={"file": (pdf_path.name, f, "application/pdf")})
-    finally:
-        pdf_path.unlink(missing_ok=True)
+    monkeypatch.setattr("app.services.reconciler.BACKEND_ROOT", tmp_path)
 
-    assert resp.status_code == 200, resp.json()
-    body = resp.json()
-    assert body["bank"] == "public_bank"
-    assert body["transactions_imported"] == 7
+    acc = Account(name="Public Bank Moneyplus", bank="public_bank", type="bank")
+    db.add(acc); db.commit()
 
-    # Verify the Statement isn't flagged for review.
-    stmt = db.query(Statement).filter_by(bank="public_bank").first()
-    assert stmt is not None
-    assert stmt.needs_review is False or stmt.needs_review is None
-    assert stmt.reconciliation_note is None
+    parser = PublicBankParser()
+    parsed = parser.parse(sample_text)
+
+    stmt = Statement(
+        file_hash="public-bank-synth-hash",
+        bank="public_bank",
+        source="email",
+        filename="public_bank_synth.pdf",
+        period_month=parser.extract_period_month(sample_text) or "",
+        file_path="public_bank_synth.pdf",
+    )
+    db.add(stmt); db.flush()
+    for p in parsed:
+        db.add(Transaction(
+            statement_id=stmt.id, account_id=acc.id,
+            date=p["date"], description=p["description"],
+            amount=p["amount"], type=p["type"],
+        ))
+    db.commit()
+
+    result = reconcile_statement(stmt.id, db)
+    assert result.ok, f"reconciliation failed: {result.note} (checks_run={result.checks_run})"
+    # All PB checks should have run.
+    assert "count" in result.checks_run
+    assert "statement" in result.checks_run
+    assert "per_row" in result.checks_run
 
 
 def test_reconcile_public_bank_count_mismatch_flags(db, tmp_path, monkeypatch):
@@ -764,3 +782,71 @@ def test_reconcile_public_bank_count_mismatch_flags(db, tmp_path, monkeypatch):
     # The reconciler note distinguishes the two count-mismatch shapes — count
     # check from the universal _check_count fires first when db_count != row_count.
     assert "count" in (result.note or "").lower()
+
+
+def test_reconcile_public_bank_debit_count_cross_check_flags(db, tmp_path, monkeypatch):
+    """Engineer a case where universal count and per-row checks pass but
+    the summary block's count_debits disagrees with the parsed debit count
+    — proves the bank-specific debit/credit count cross-check fires.
+
+    Mechanism: corrupt the sample text so the summary's count_debits is
+    99 (vs the actual 6 debits in the body). All balance arithmetic still
+    agrees end-to-end; only the summary count is wrong.
+    """
+    import fitz
+    from app.services.parsers.public_bank import PublicBankParser
+
+    sample_path = Path(__file__).parent.parent / "sample_data" / "public_bank_sample.txt"
+    sample_text = sample_path.read_text(encoding="utf-8")
+
+    # Corrupt the count_debits line. The summary block's third numeric line
+    # after `BALANCE` is the count_debits; replace `6\n` immediately after
+    # `780.00\n` with `99\n` so the bank-specific count cross-check trips.
+    corrupted = sample_text.replace("780.00\n6\n", "780.00\n99\n", 1)
+    assert corrupted != sample_text, "sample text didn't contain the expected count_debits line"
+
+    pdf_path = tmp_path / "public_bank_corrupt_count.pdf"
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_textbox(fitz.Rect(40, 40, 555, 800), corrupted, fontsize=8, fontname="cour")
+    doc.save(str(pdf_path))
+    doc.close()
+
+    monkeypatch.setattr("app.services.reconciler.BACKEND_ROOT", tmp_path)
+
+    acc = Account(name="Public Bank Moneyplus", bank="public_bank", type="bank")
+    db.add(acc); db.commit()
+
+    parser = PublicBankParser()
+    # Parse the ORIGINAL text (the body transactions) but the PDF has the
+    # corrupted summary. So db_count and reconciler-row count both equal 7;
+    # the divergence is purely in the summary's count_debits.
+    parsed = parser.parse(corrupted)
+
+    stmt = Statement(
+        file_hash="public-bank-corrupt-count-hash",
+        bank="public_bank",
+        source="email",
+        filename="public_bank_corrupt_count.pdf",
+        period_month=parser.extract_period_month(corrupted) or "",
+        file_path="public_bank_corrupt_count.pdf",
+    )
+    db.add(stmt); db.flush()
+    for p in parsed:
+        db.add(Transaction(
+            statement_id=stmt.id, account_id=acc.id,
+            date=p["date"], description=p["description"],
+            amount=p["amount"], type=p["type"],
+        ))
+    db.commit()
+
+    result = reconcile_statement(stmt.id, db)
+    assert not result.ok
+    # The note should mention "debit count mismatch" — the bank-specific guard.
+    assert "debit count" in (result.note or "").lower()
+    # Universal count check should have passed (db_count == row_count == 7).
+    assert "count" in result.checks_run
+    # Statement and per_row checks ran (they pass because all the body math
+    # is internally consistent — only the summary's count_debits is wrong).
+    assert "statement" in result.checks_run
+    assert "per_row" in result.checks_run
