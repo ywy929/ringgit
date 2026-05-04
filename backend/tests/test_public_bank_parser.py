@@ -160,3 +160,92 @@ def test_page_wrap_description_stitched():
     assert "LINE-2" in only["description"]
     assert "LINE-3" in only["description"]
     assert "ORPHAN-LINE-FROM-PAGE-2" in only["description"]
+
+
+YEAR_WRAP_SAMPLE = """\
+PENYATA AKAUN / STATEMENT OF ACCOUNT
+Tarikh Penyata / Statement Date
+03 Jan 2026
+Jenis Akaun / Account Type RM Moneyplus Savings Account
+Public Bank's Privacy Notice
+TARIKH
+URUS NIAGA
+DEBIT
+KREDIT
+BAKI
+DATE
+TRANSACTION
+DEBIT
+CREDIT
+BALANCE
+1,000.00
+0.00
+1
+2.00
+0
+03/12
+Balance From Last Statement
+998.00
+31/12
+2.00
+1,000.00
+INT CR-INT CYCLE
+Closing Balance In This Statement
+1,000.00
+"""
+
+
+def test_year_inference_wrap():
+    # Jan 2026 statement contains 03/12 and 31/12 → those are Dec 2025.
+    txs = PublicBankParser().parse(YEAR_WRAP_SAMPLE)
+    assert len(txs) == 1
+    only = txs[0]
+    assert only["date"] == "2025-12-31"
+    assert only["type"] == "credit"
+    assert only["amount"] == 2.00
+
+
+import logging
+
+
+def test_out_of_bounds_date_logs_warning(caplog):
+    # A statement claiming Apr 2026 with a transaction dated 03/06 (June)
+    # would infer 2025-06 (year-1 because 6 > 4). That's > 40 days before
+    # the statement date — the parser should log a warning but still emit
+    # the transaction.
+    sample = """\
+Tarikh Penyata / Statement Date
+03 Apr 2026
+Jenis Akaun / Account Type RM Moneyplus Savings Account
+Public Bank's Privacy Notice
+TARIKH
+URUS NIAGA
+DEBIT
+KREDIT
+BAKI
+DATE
+TRANSACTION
+DEBIT
+CREDIT
+BALANCE
+0.00
+10.00
+1
+0.00
+0
+03/06
+Balance From Last Statement
+10.00
+03/06
+10.00
+0.00
+SOMETHING SUSPICIOUS
+Closing Balance In This Statement
+0.00
+"""
+    with caplog.at_level(logging.WARNING):
+        txs = PublicBankParser().parse(sample)
+    # Transaction is still emitted (soft-bound, not hard fail).
+    assert len(txs) == 1
+    # And a warning was logged.
+    assert any("out of bounds" in r.message.lower() for r in caplog.records)

@@ -10,8 +10,11 @@ and stitches descriptions across page-break carry-forwards.
 See docs/superpowers/specs/2026-05-04-public-bank-parser-design.md for the
 full architectural rationale.
 """
+import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
+
+logger = logging.getLogger(__name__)
 
 from app.services.parsers.base import BaseParser, ParsedTransaction
 
@@ -154,6 +157,17 @@ class PublicBankParser(BaseParser):
                 tx_month = int(month_str)
                 tx_year = stmt_year - 1 if tx_month > stmt_month else stmt_year
                 iso_date = f"{tx_year:04d}-{tx_month:02d}-{int(day_str):02d}"
+
+                # Soft-bound assertion: warn if the inferred date falls
+                # outside [stmt_date − 40 days, stmt_date]. Doesn't fail
+                # the parse — the reconciler is the authoritative guardrail.
+                tx_dt = datetime(tx_year, tx_month, int(day_str))
+                if tx_dt > stmt_dt or tx_dt < stmt_dt - timedelta(days=40):
+                    logger.warning(
+                        "public_bank: inferred transaction date %s is out "
+                        "of bounds for statement date %s (raw line %s)",
+                        iso_date, stmt_dt.strftime("%Y-%m-%d"), current_date_str,
+                    )
 
                 # Walk forward to collect description lines until next D/N/structural.
                 desc_lines: list[str] = []
