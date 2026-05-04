@@ -33,13 +33,19 @@ def test_cimb_real_pdf():
     assert len(txs) >= 1
 
 
-@skip_if_no_fixture("public_bank_202603.pdf")
+@skip_if_no_fixture("public_bank_202604.pdf")
 def test_public_bank_real_pdf():
-    text = load_real_pdf_text("public_bank_202603.pdf")
+    # Real Apr 2026 statement: 9 debits + 2 credits = 11 transactions per
+    # the summary block (and validates the page-wrap stitching against an
+    # actual multi-page PDF, not just synthetic text).
+    text = load_real_pdf_text("public_bank_202604.pdf")
     parser = PublicBankParser()
     assert parser.can_parse(text)
     txs = parser.parse(text)
-    assert len(txs) >= 1
+    assert len(txs) == 11, f"expected 11 transactions, got {len(txs)}"
+    # Sign sanity: closing - opening = 8,921.73 - 19,069.69 = -10,147.96.
+    signed_total = sum(t["amount"] if t["type"] == "credit" else -t["amount"] for t in txs)
+    assert abs(signed_total - (-10147.96)) < 0.01, f"signed total mismatch: {signed_total:.2f}"
 
 
 @skip_if_no_fixture("hong_leong_202603.pdf")
