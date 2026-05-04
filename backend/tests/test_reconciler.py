@@ -648,3 +648,26 @@ def test_extract_public_bank_summary_missing_returns_none():
     from app.services.reconciler import _extract_public_bank_summary
     text = "no summary block here at all"
     assert _extract_public_bank_summary(text) is None
+
+
+def test_extract_rows_from_public_bank_happy_path():
+    from app.services.reconciler import _extract_rows_from_public_bank
+    from pathlib import Path
+    text = (Path(__file__).parent.parent / "sample_data" / "public_bank_sample.txt").read_text(encoding="utf-8")
+    rows = _extract_rows_from_public_bank(text)
+    # Same 7 transactions the parser produces from the same sample.
+    assert len(rows) == 7
+    # Sum of signed amounts == closing - opening = 1250 - 2000 = -750.
+    signed_sum = sum(r["signed_amount"] for r in rows)
+    assert abs(signed_sum - (-750.00)) < 0.01
+    # Every row has a balance present.
+    assert all(r["balance"] is not None for r in rows)
+    # First row is the 500 debit.
+    assert rows[0]["signed_amount"] == -500.00
+    assert rows[0]["balance"] == 1500.00
+
+
+def test_extract_rows_from_public_bank_no_section():
+    from app.services.reconciler import _extract_rows_from_public_bank
+    text = "no transaction section here"
+    assert _extract_rows_from_public_bank(text) == []

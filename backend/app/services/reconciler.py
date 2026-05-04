@@ -346,6 +346,91 @@ def _extract_public_bank_summary(text: str) -> dict | None:
     }
 
 
+_PB_DATE_LINE_RE = re.compile(r"^\d{2}/\d{2}$")
+_PB_NUMBER_LINE_RE = re.compile(r"^[\d,]+\.\d{2}$")
+_PB_SECTION_START = "Balance From Last Statement"
+_PB_SECTION_END = "Closing Balance In This Statement"
+_PB_STRUCTURAL = frozenset({
+    "Balance From Last Statement", "Balance B/F", "Balance C/F",
+})
+_PB_HEADER_LINES = frozenset({
+    "TARIKH", "URUS NIAGA", "DEBIT", "KREDIT", "BAKI",
+    "DATE", "TRANSACTION", "CREDIT", "BALANCE",
+})
+_PB_PAGE_FOOTER_RE = re.compile(r"^Muka Surat \d+ Daripada \d+$|^Page \d+ of \d+$")
+
+
+def _pb_is_noise(line: str) -> bool:
+    s = line.strip()
+    return s in _PB_HEADER_LINES or bool(_PB_PAGE_FOOTER_RE.match(s))
+
+
+def _extract_rows_from_public_bank(text: str) -> list[dict]:
+    """Independent re-extraction of Public Bank transaction rows for the
+    reconciler. Mirrors PublicBankParser.parse — same section bounds, same
+    line classifier, same balance-delta sign rule — but emits
+    {signed_amount, balance} dicts. The duplicated state-machine logic is
+    the cost of the parser-independent reconciler design (ADR-002):
+    a regression in the parser must not be masked by the reconciler.
+    """
+    lines = text.splitlines()
+
+    start = None
+    end = len(lines)
+    for i, ln in enumerate(lines):
+        s = ln.strip()
+        if start is None and s == _PB_SECTION_START:
+            start = i
+        elif s == _PB_SECTION_END:
+            end = i
+            break
+    if start is None or start + 1 >= end:
+        return []
+
+    opening_line = lines[start + 1].strip()
+    if not _PB_NUMBER_LINE_RE.match(opening_line):
+        return []
+    prev_balance = float(opening_line.replace(",", ""))
+
+    rows: list[dict] = []
+    i = start + 2
+    while i < end:
+        line = lines[i].strip()
+        if not line or _pb_is_noise(line) or line in _PB_STRUCTURAL:
+            i += 1
+            continue
+        if _PB_DATE_LINE_RE.match(line):
+            i += 1
+            continue
+        if _PB_NUMBER_LINE_RE.match(line):
+            if i + 1 >= end:
+                break
+            next_line = lines[i + 1].strip()
+            if not _PB_NUMBER_LINE_RE.match(next_line):
+                i += 1
+                continue
+            curr_balance = float(next_line.replace(",", ""))
+            signed = round(curr_balance - prev_balance, 2)
+            rows.append({"signed_amount": signed, "balance": curr_balance})
+            prev_balance = curr_balance
+            # Skip past description lines until next D / N / structural.
+            j = i + 2
+            while j < end:
+                dline = lines[j].strip()
+                if not dline:
+                    j += 1
+                    continue
+                if (_PB_DATE_LINE_RE.match(dline) or _PB_NUMBER_LINE_RE.match(dline)
+                        or dline in _PB_STRUCTURAL or _pb_is_noise(dline)):
+                    break
+                j += 1
+            i = j
+            continue
+        i += 1
+
+    return rows
+
+
 def _extract_rows_from_maybank(text: str) -> list[dict]:
     """Mirror MaybankParser.parse, emit {signed_amount, balance} rows for the
     reconciler.
