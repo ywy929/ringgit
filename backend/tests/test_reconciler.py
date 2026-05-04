@@ -671,3 +671,96 @@ def test_extract_rows_from_public_bank_no_section():
     from app.services.reconciler import _extract_rows_from_public_bank
     text = "no transaction section here"
     assert _extract_rows_from_public_bank(text) == []
+
+
+def test_reconcile_public_bank_happy_path(client, db):
+    """End-to-end reconcile of a synthetic Public Bank statement: upload
+    a single-page PDF, expect ok=True and all 5 PB checks to run."""
+    import fitz
+    from pathlib import Path
+    from app.models import Account, Statement
+
+    # Pre-create the public_bank account so /api/upload doesn't return 'failed'.
+    db.add(Account(name="Public Bank Moneyplus", bank="public_bank", type="bank"))
+    db.commit()
+
+    # Synthesize a PDF whose extracted text is the existing sample.
+    sample = (Path(__file__).parent.parent / "sample_data" / "public_bank_sample.txt").read_text(encoding="utf-8")
+    pdf_path = Path("test_pb.pdf").resolve()
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_textbox(fitz.Rect(40, 40, 555, 800), sample, fontsize=8, fontname="cour")
+    doc.save(str(pdf_path))
+    doc.close()
+
+    try:
+        with open(pdf_path, "rb") as f:
+            resp = client.post("/api/upload", files={"file": (pdf_path.name, f, "application/pdf")})
+    finally:
+        pdf_path.unlink(missing_ok=True)
+
+    assert resp.status_code == 200, resp.json()
+    body = resp.json()
+    assert body["bank"] == "public_bank"
+    assert body["transactions_imported"] == 7
+
+    # Verify the Statement isn't flagged for review.
+    stmt = db.query(Statement).filter_by(bank="public_bank").first()
+    assert stmt is not None
+    assert stmt.needs_review is False or stmt.needs_review is None
+    assert stmt.reconciliation_note is None
+
+
+def test_reconcile_public_bank_count_mismatch_flags(db, tmp_path, monkeypatch):
+    """Force the DB to have one fewer transaction than the reconciler extracts
+    from the PDF — assert the reconciler's universal count cross-check flags
+    needs_review with a useful note containing 'count'."""
+    import fitz
+    from pathlib import Path
+    from app.models import Account, Statement, Transaction
+    from app.services.parsers.public_bank import PublicBankParser
+    from app.services.reconciler import reconcile_statement
+
+    monkeypatch.setattr("app.services.reconciler.BACKEND_ROOT", tmp_path)
+
+    acc = Account(name="Public Bank Moneyplus", bank="public_bank", type="bank")
+    db.add(acc)
+    db.commit()
+
+    sample = (Path(__file__).parent.parent / "sample_data" / "public_bank_sample.txt").read_text(encoding="utf-8")
+
+    pdf_path = tmp_path / "pb_short.pdf"
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_textbox(fitz.Rect(40, 40, 555, 800), sample, fontsize=8, fontname="cour")
+    doc.save(str(pdf_path))
+    doc.close()
+
+    parser = PublicBankParser()
+    parsed = parser.parse(sample)
+    # Drop the last transaction so DB count (6) < reconciler row count (7).
+    parsed = parsed[:-1]
+
+    stmt = Statement(
+        file_hash="pb-count-mismatch-hash",
+        bank="public_bank",
+        source="email",
+        filename="pb_short.pdf",
+        period_month=parser.extract_period_month(sample) or "",
+        file_path="pb_short.pdf",
+    )
+    db.add(stmt)
+    db.flush()
+    for p in parsed:
+        db.add(Transaction(
+            statement_id=stmt.id, account_id=acc.id,
+            date=p["date"], description=p["description"],
+            amount=p["amount"], type=p["type"],
+        ))
+    db.commit()
+
+    result = reconcile_statement(stmt.id, db)
+    assert result.ok is False
+    # The reconciler note distinguishes the two count-mismatch shapes — count
+    # check from the universal _check_count fires first when db_count != row_count.
+    assert "count" in (result.note or "").lower()

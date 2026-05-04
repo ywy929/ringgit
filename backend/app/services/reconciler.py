@@ -3,7 +3,8 @@
 For each statement we re-extract transaction rows independently of whatever
 the per-bank regex parser produced, then cross-check counts and arithmetic.
 The extraction strategy is bank-specific: TnG uses PyMuPDF's
-`Page.find_tables()`; AEON and Maybank use anchor-based text parsing.
+`Page.find_tables()`; AEON, Maybank, and Public Bank use anchor-based
+text parsing.
 
 Checks (each short-circuits):
 
@@ -13,7 +14,8 @@ Checks (each short-circuits):
 
 Some banks add inline cross-checks: AEON validates against header Previous /
 Current balance values; Maybank validates against explicit BEGINNING and
-ENDING balance markers when present.
+ENDING balance markers when present; Public Bank validates against the
+summary block's closing balance and debit/credit counts.
 
 Failures soft-flag the Statement (caller sets needs_review); inserts are not
 rolled back. Skips (encrypted PDFs we cannot open, file missing, unknown bank
@@ -531,6 +533,7 @@ def reconcile_statement(stmt_id: int, db: Session) -> ReconcileResult:
     text = "".join(p.get_text() for p in doc)
     aeon_headers: dict | None = None
     maybank_balances: dict | None = None
+    pb_summary: dict | None = None
     if _NEW_FORMAT_MARKER in text:
         rows = _extract_rows_from_tng_new(doc)
     elif _LEGACY_FORMAT_MARKER in text:
@@ -541,6 +544,9 @@ def reconcile_statement(stmt_id: int, db: Session) -> ReconcileResult:
     elif _MAYBANK_MARKER in text and _MAYBANK_MARKER_2 in text:
         rows = _extract_rows_from_maybank(text)
         maybank_balances = _extract_maybank_balances(text)
+    elif _PB_MARKER_1 in text and _PB_MARKER_2 in text:
+        rows = _extract_rows_from_public_bank(text)
+        pb_summary = _extract_public_bank_summary(text)
     else:
         doc.close()
         return ReconcileResult(ok=True, note="unknown bank format")
@@ -615,6 +621,59 @@ def reconcile_statement(stmt_id: int, db: Session) -> ReconcileResult:
         r = _check_per_row(rows)
         if not r.ok:
             return ReconcileResult(ok=False, note=r.note, checks_run=checks_run)
+
+        return ReconcileResult(ok=True, checks_run=checks_run)
+
+    # Public Bank Moneyplus: per-row balance always present, plus a 5-line
+    # summary block in the statement header that uniquely exposes count
+    # data (debits vs credits) — the actually-novel cross-check for this
+    # bank. See spec 2026-05-04-public-bank-parser-design.md for rationale.
+    if pb_summary is not None and rows:
+        checks_run.append("statement")
+        r = _check_statement_balance(rows)
+        if not r.ok:
+            return ReconcileResult(ok=False, note=r.note, checks_run=checks_run)
+
+        checks_run.append("per_row")
+        r = _check_per_row(rows)
+        if not r.ok:
+            return ReconcileResult(ok=False, note=r.note, checks_run=checks_run)
+
+        # Closing-balance cross-check.
+        final_balance = rows[-1]["balance"]
+        if abs(final_balance - pb_summary["closing"]) > 0.01:
+            return ReconcileResult(
+                ok=False,
+                note=(
+                    f"closing-balance cross-check failed: "
+                    f"summary={pb_summary['closing']:.2f}, "
+                    f"final_running={final_balance:.2f}"
+                ),
+                checks_run=checks_run,
+            )
+
+        # Count cross-check (genuinely novel for this bank — catches the
+        # toll-gate dedup bug shape from ADR-003).
+        db_debits = sum(1 for r in rows if r["signed_amount"] < 0)
+        db_credits = sum(1 for r in rows if r["signed_amount"] > 0)
+        if db_debits != pb_summary["count_debits"]:
+            return ReconcileResult(
+                ok=False,
+                note=(
+                    f"debit count mismatch: parsed={db_debits}, "
+                    f"summary={pb_summary['count_debits']}"
+                ),
+                checks_run=checks_run,
+            )
+        if db_credits != pb_summary["count_credits"]:
+            return ReconcileResult(
+                ok=False,
+                note=(
+                    f"credit count mismatch: parsed={db_credits}, "
+                    f"summary={pb_summary['count_credits']}"
+                ),
+                checks_run=checks_run,
+            )
 
         return ReconcileResult(ok=True, checks_run=checks_run)
 
