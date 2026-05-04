@@ -612,3 +612,39 @@ def test_reconcile_real_maybank_savings_passes(db, monkeypatch, tmp_path):
     assert "count" in result.checks_run
     assert "statement" in result.checks_run
     assert "per_row" in result.checks_run
+
+
+def test_extract_public_bank_summary_happy_path():
+    from app.services.reconciler import _extract_public_bank_summary
+    text = """\
+TARIKH
+URUS NIAGA
+DEBIT
+KREDIT
+BAKI
+DATE
+TRANSACTION
+DEBIT
+CREDIT
+BALANCE
+1,250.00
+780.00
+6
+30.00
+1
+03/03
+"""
+    result = _extract_public_bank_summary(text)
+    assert result == {
+        "closing": 1250.00,
+        "total_debits": 780.00,
+        "count_debits": 6,
+        "total_credits": 30.00,
+        "count_credits": 1,
+    }
+
+
+def test_extract_public_bank_summary_missing_returns_none():
+    from app.services.reconciler import _extract_public_bank_summary
+    text = "no summary block here at all"
+    assert _extract_public_bank_summary(text) is None

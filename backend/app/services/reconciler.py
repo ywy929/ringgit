@@ -102,6 +102,8 @@ _LEGACY_FORMAT_MARKER = "Customer Transactions Statement"
 _AEON_MARKER = "AEON CREDIT SERVICE"
 _MAYBANK_MARKER = "Malayan Banking Berhad"
 _MAYBANK_MARKER_2 = "URUSNIAGA AKAUN"
+_PB_MARKER_1 = "Moneyplus Savings Account"
+_PB_MARKER_2 = "Closing Balance In This Statement"
 
 _RM_AMOUNT_RE = re.compile(r"^RM(\d+(?:,\d{3})*\.\d{2})$")
 _PLAIN_AMOUNT_RE = re.compile(r"^(\d+(?:,\d{3})*\.\d{2})$")
@@ -310,6 +312,34 @@ def _extract_maybank_balances(text: str) -> dict | None:
         ending = float(end_match.group(1).replace(",", ""))
 
     return {"beginning": beginning, "ending": ending}
+
+
+_PB_SUMMARY_RE = re.compile(
+    r"BALANCE\s*\n"
+    r"([\d,]+\.\d{2})\s*\n"     # closing
+    r"([\d,]+\.\d{2})\s*\n"     # total debits
+    r"(\d+)\s*\n"               # count debits
+    r"([\d,]+\.\d{2})\s*\n"     # total credits
+    r"(\d+)\s*\n",              # count credits
+    re.MULTILINE,
+)
+
+
+def _extract_public_bank_summary(text: str) -> dict | None:
+    """Pull the 5-line summary block (closing, total/count debits, total/count
+    credits) from a Public Bank Moneyplus statement text. Returns None if
+    the block isn't found — caller treats as skip.
+    """
+    m = _PB_SUMMARY_RE.search(text)
+    if not m:
+        return None
+    return {
+        "closing": float(m.group(1).replace(",", "")),
+        "total_debits": float(m.group(2).replace(",", "")),
+        "count_debits": int(m.group(3)),
+        "total_credits": float(m.group(4).replace(",", "")),
+        "count_credits": int(m.group(5)),
+    }
 
 
 def _extract_rows_from_maybank(text: str) -> list[dict]:
