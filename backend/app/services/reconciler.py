@@ -394,12 +394,14 @@ def _extract_rows_from_public_bank(text: str) -> list[dict]:
 
     rows: list[dict] = []
     i = start + 2
+    date_seen = False
     while i < end:
         line = lines[i].strip()
         if not line or _pb_is_noise(line) or line in _PB_STRUCTURAL:
             i += 1
             continue
         if _PB_DATE_LINE_RE.match(line):
+            date_seen = True
             i += 1
             continue
         if _PB_NUMBER_LINE_RE.match(line):
@@ -408,6 +410,13 @@ def _extract_rows_from_public_bank(text: str) -> list[dict]:
             next_line = lines[i + 1].strip()
             if not _PB_NUMBER_LINE_RE.match(next_line):
                 i += 1
+                continue
+            if not date_seen:
+                # Mirrors PublicBankParser.parse: skip number-pairs that
+                # appear before any date line (defensive against malformed
+                # statements where the summary block leaks past the section
+                # start).
+                i += 2
                 continue
             curr_balance = float(next_line.replace(",", ""))
             signed = round(curr_balance - prev_balance, 2)
