@@ -28,8 +28,9 @@ class PublicBankParser(BaseParser):
         return "public_bank"
 
     def can_parse(self, text: str) -> bool:
-        # Two-marker strict check. "Public Bank" alone matches AEON's footer
-        # disclaimer; we additionally require the savings-account-type line.
+        # Two-marker strict check: "Public Bank" alone appears in the privacy-
+        # notice footer of every statement page (so it's not a discriminating
+        # signal on its own); "Moneyplus Savings Account" pins the account type.
         return "Public Bank" in text and "Moneyplus Savings Account" in text
 
     def extract_period_month(self, text: str) -> str:
