@@ -314,13 +314,17 @@ def _extract_maybank_balances(text: str) -> dict | None:
     return {"beginning": beginning, "ending": ending}
 
 
+# Anchors on the LAST column header "BALANCE\n" of the bilingual block.
+# re.search finds the page-1 occurrence whose next 5 lines are pure
+# numeric; page-2 repetitions fail to match because they are followed
+# by a date line ("24/03"), not an amount.
 _PB_SUMMARY_RE = re.compile(
     r"BALANCE\s*\n"
     r"([\d,]+\.\d{2})\s*\n"     # closing
     r"([\d,]+\.\d{2})\s*\n"     # total debits
-    r"(\d+)\s*\n"               # count debits
+    r"([\d,]+)\s*\n"            # count debits (allow comma in case >=1000)
     r"([\d,]+\.\d{2})\s*\n"     # total credits
-    r"(\d+)\s*\n",              # count credits
+    r"([\d,]+)\s*\n",           # count credits (allow comma in case >=1000)
     re.MULTILINE,
 )
 
@@ -336,9 +340,9 @@ def _extract_public_bank_summary(text: str) -> dict | None:
     return {
         "closing": float(m.group(1).replace(",", "")),
         "total_debits": float(m.group(2).replace(",", "")),
-        "count_debits": int(m.group(3)),
+        "count_debits": int(m.group(3).replace(",", "")),
         "total_credits": float(m.group(4).replace(",", "")),
-        "count_credits": int(m.group(5)),
+        "count_credits": int(m.group(5).replace(",", "")),
     }
 
 
