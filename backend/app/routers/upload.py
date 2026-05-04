@@ -4,6 +4,7 @@ import re
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from sqlalchemy.orm import Session
 
+from app.config import BACKEND_ROOT
 from app.database import get_db
 from app.models import Account, Category, Statement, Transaction
 from app.schemas import UploadResult
@@ -12,6 +13,8 @@ from app.services.parser_registry import ParserRegistry
 from app.services.reconciler import reconcile_statement
 from app.services.recurring_detector import RecurringDetector
 from app.services.transfer_detector import TransferDetector
+
+UPLOAD_PDF_ROOT = BACKEND_ROOT / "fetched_pdfs" / "uploads"
 
 router = APIRouter()
 
@@ -90,9 +93,30 @@ async def upload_statement(
 
     bank_id = parser.bank_id
 
+    # Persist bytes to disk first — so the bytes are recoverable even if no
+    # Account exists yet, the parser later changes, or reconciliation needs
+    # to re-open the PDF. Mirrors the email-fetch path's behavior.
+    period_month = parser.extract_period_month(text) or "unknown"
+    UPLOAD_PDF_ROOT.mkdir(parents=True, exist_ok=True)
+    target = UPLOAD_PDF_ROOT / f"{period_month}_{bank_id}_{file_hash[:8]}.pdf"
+    target.write_bytes(content)
+    file_path_rel = str(target.relative_to(BACKEND_ROOT))
+
     # Find matching account
     account = db.query(Account).filter_by(bank=bank_id).first()
     if not account:
+        # Save the Statement with file_path so reprocess scripts can pick it
+        # up after the user creates the account (or runs a reprocess script
+        # that creates the account itself).
+        db.add(Statement(
+            file_hash=file_hash,
+            bank=bank_id,
+            source="upload",
+            filename=file.filename or "",
+            period_month=period_month if period_month != "unknown" else "",
+            file_path=file_path_rel,
+        ))
+        db.commit()
         return UploadResult(
             filename=file.filename or "",
             bank=bank_id,
@@ -104,7 +128,6 @@ async def upload_statement(
 
     # Parse transactions
     parsed = parser.parse(text)
-    period_month = parser.extract_period_month(text)
 
     # Create statement
     stmt = Statement(
@@ -112,7 +135,8 @@ async def upload_statement(
         bank=bank_id,
         source="upload",
         filename=file.filename or "",
-        period_month=period_month,
+        period_month=period_month if period_month != "unknown" else "",
+        file_path=file_path_rel,
     )
     db.add(stmt)
     db.flush()

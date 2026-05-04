@@ -29,6 +29,8 @@ def _isolated_pdf_root(tmp_path, monkeypatch):
     # move together — _process_fetched_pdf uses target.relative_to(BACKEND_ROOT).
     monkeypatch.setattr("app.routers.email.BACKEND_ROOT", tmp_path)
     monkeypatch.setattr("app.routers.email.PDF_ROOT", tmp_path / "fetched_pdfs")
+    monkeypatch.setattr("app.routers.upload.BACKEND_ROOT", tmp_path)
+    monkeypatch.setattr("app.routers.upload.UPLOAD_PDF_ROOT", tmp_path / "fetched_pdfs" / "uploads")
 
 
 @pytest.fixture
