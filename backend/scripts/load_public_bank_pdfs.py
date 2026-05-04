@@ -52,6 +52,10 @@ def main() -> int:
                     files={"file": (path.name, f, "application/pdf")},
                     timeout=60,
                 )
+            except requests.ConnectionError as exc:
+                print(f"  {path.name}: CONNECTION REFUSED — is the backend running at {UPLOAD_URL}? ({exc})")
+                failures += 1
+                continue
             except requests.RequestException as exc:
                 print(f"  {path.name}: REQUEST ERROR {exc}")
                 failures += 1
@@ -62,7 +66,12 @@ def main() -> int:
             failures += 1
             continue
 
-        body = resp.json()
+        try:
+            body = resp.json()
+        except Exception:
+            print(f"  {path.name}: non-JSON 200 response — {resp.text[:200]}")
+            failures += 1
+            continue
         status = body.get("status", "?")
         bank = body.get("bank", "?")
         n_imported = body.get("transactions_imported", 0)
