@@ -190,8 +190,17 @@ class PublicBankParser(BaseParser):
                 i = j
                 continue
 
-            # Anything else: text line outside a transaction (orphan or carry-
-            # forward). Page-wrap stitching is added in Task 5.
+            # Anything else: text line outside a transaction. If we're past
+            # the last emitted transaction's description and inside a page-
+            # break carry-forward (i.e., we just consumed a Balance B/F → N
+            # pair without producing a transaction), the orphan text belongs
+            # to the previous transaction. Append it.
+            if transactions and last_tx_desc is not None:
+                last_tx_desc.append(line)
+                # Re-render the merged description on the last transaction.
+                merged = " ".join(last_tx_desc)[:200]
+                merged = re.sub(r"\s+", " ", merged).strip()
+                transactions[-1]["description"] = merged
             i += 1
 
         return transactions

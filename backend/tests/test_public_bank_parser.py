@@ -93,3 +93,70 @@ def test_parse_signs_are_correct_via_balance_delta():
     signed_total = sum(t["amount"] if t["type"] == "credit" else -t["amount"] for t in txs)
     # Opening 2000.00 → closing 1250.00 → delta -750.00.
     assert abs(signed_total - (-750.00)) < 0.01
+
+
+PAGE_WRAP_SAMPLE = """\
+PENYATA AKAUN / STATEMENT OF ACCOUNT
+Tarikh Penyata / Statement Date
+03 Apr 2026
+Jenis Akaun / Account Type RM Moneyplus Savings Account
+Public Bank's Privacy Notice
+TARIKH
+URUS NIAGA
+DEBIT
+KREDIT
+BAKI
+DATE
+TRANSACTION
+DEBIT
+CREDIT
+BALANCE
+500.00
+500.00
+1
+0.00
+0
+03/03
+Balance From Last Statement
+1,000.00
+24/03
+500.00
+500.00
+DR-ECP 462236 LINE-1
+LINE-2
+LINE-3
+Balance C/F
+500.00
+Muka Surat 1 Daripada 2
+Page 1 of 2
+TARIKH
+URUS NIAGA
+DEBIT
+KREDIT
+BAKI
+DATE
+TRANSACTION
+DEBIT
+CREDIT
+BALANCE
+24/03
+Balance B/F
+500.00
+ORPHAN-LINE-FROM-PAGE-2
+Closing Balance In This Statement
+500.00
+"""
+
+
+def test_page_wrap_description_stitched():
+    txs = PublicBankParser().parse(PAGE_WRAP_SAMPLE)
+    assert len(txs) == 1
+    only = txs[0]
+    assert only["date"] == "2026-03-24"
+    assert only["amount"] == 500.00
+    assert only["type"] == "debit"
+    # All description lines (page-1 + page-2 orphan) are joined.
+    assert "LINE-1" in only["description"]
+    assert "LINE-2" in only["description"]
+    assert "LINE-3" in only["description"]
+    assert "ORPHAN-LINE-FROM-PAGE-2" in only["description"]
