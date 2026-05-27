@@ -1,0 +1,21 @@
+# Claude Code
+.claude/
+.workspace/
+
+# Local databases (SQLite)
+*.db
+*.sqlite3
+
+# Logs
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
